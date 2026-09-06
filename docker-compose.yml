@@ -1,0 +1,100 @@
+# ============================================================
+# Local orchestration check before deploying. Each service still
+# uses MongoDB Atlas (via its own .env MONGO_URI) — this compose
+# file isn't running a local database, just proving the 5
+# containers build and talk to each other correctly.
+#
+# Two things deliberately overridden here vs. each service's own
+# .env file:
+#  - Service URLs point at Docker's internal service names (e.g.
+#    http://device-registry-service:3002) instead of localhost —
+#    containers can't reach each other via "localhost", that only
+#    means "this same container".
+#  - SSL_KEY_PATH / SSL_CERT_PATH are cleared to empty, so every
+#    service falls back to plain HTTP inside this local check —
+#    the mkcert paths are host filesystem paths that don't exist
+#    inside a container anyway.
+#
+# Only the gateway publishes a port. The four services behind it
+# stay on the internal network, reachable through the gateway the
+# same way they would be in a real deployment.
+# ============================================================
+
+services:
+  auth-service:
+    build: ./services/auth-service
+    env_file:
+      - ./services/auth-service/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+    networks:
+      - iot-mesh
+
+  device-registry-service:
+    build: ./services/device-registry-service
+    env_file:
+      - ./services/device-registry-service/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+    networks:
+      - iot-mesh
+
+  data-ingestion-service:
+    build: ./services/data-ingestion-service
+    # Published directly as well as via the gateway: devices and the dashboard
+    # speak MQTT over WebSockets to this port, and that upgrade doesn't go
+    # through the HTTP proxy.
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./services/data-ingestion-service/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+      - DEVICE_REGISTRY_URL=http://device-registry-service:3002
+      - ALERT_SERVICE_URL=http://alert-rules-service:3004
+    depends_on:
+      - device-registry-service
+      - alert-rules-service
+    networks:
+      - iot-mesh
+
+  alert-rules-service:
+    build: ./services/alert-rules-service
+    env_file:
+      - ./services/alert-rules-service/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+      - DEVICE_REGISTRY_URL=http://device-registry-service:3002
+    depends_on:
+      - device-registry-service
+    networks:
+      - iot-mesh
+
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "3005:3005"
+    env_file:
+      - ./services/api-gateway/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+      - AUTH_URL=http://auth-service:3001
+      - DEVICE_REGISTRY_URL=http://device-registry-service:3002
+      - INGESTION_URL=http://data-ingestion-service:3003
+      - ALERT_URL=http://alert-rules-service:3004
+    depends_on:
+      - auth-service
+      - device-registry-service
+      - data-ingestion-service
+      - alert-rules-service
+    networks:
+      - iot-mesh
+
+networks:
+  iot-mesh:
+    driver: bridge
