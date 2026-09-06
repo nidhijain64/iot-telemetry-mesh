@@ -205,6 +205,12 @@ Brings up all five services on the `iot-mesh` network. Only the gateway (`:3005`
 ingestion service (`:3003`, for MQTT/WebSocket) publish ports. MongoDB is still whatever
 `MONGO_URI` points at — Compose doesn't run a local database.
 
+### Deploying
+
+`render.yaml` defines all six services as a Render Blueprint. See
+**[DEPLOY.md](DEPLOY.md)** for the full walkthrough, including the shared-secret
+setup and the two settings people most often get wrong.
+
 ### Streaming from a real phone
 
 The `/mobile-node` page publishes live microphone level, motion, GPS and battery from a

@@ -1,0 +1,186 @@
+# ============================================================
+# Render Blueprint — deploys the four services, the gateway, and the
+# dashboard. Create it from the Render dashboard with
+# "New +" -> "Blueprint", pointed at this repo.
+#
+# Every value marked `sync: false` is NOT in this file on purpose: it is
+# either a secret or a URL that doesn't exist until the first deploy has
+# run. Render prompts for each one, and DEPLOY.md lists exactly what to
+# paste where.
+#
+# The simulator is deliberately absent. It has to run continuously to
+# produce data, and Render's free plan spins idle services down — see
+# DEPLOY.md for how to point a locally-run simulator at this deployment,
+# which is what you want for a demo anyway.
+# ============================================================
+
+services:
+  # ---------- auth-service ----------
+  - type: web
+    name: auth-service
+    runtime: node
+    plan: free
+    rootDir: services/auth-service
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      # Must be byte-identical across all four services — each verifies
+      # tokens locally rather than calling back here.
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRY
+        value: 1h
+      # The dashboard's URL, once it exists. Without it any site could
+      # call this API from a logged-in user's browser.
+      - key: CORS_ORIGIN
+        sync: false
+      - key: NODE_ENV
+        value: production
+
+  # ---------- device-registry-service ----------
+  - type: web
+    name: device-registry-service
+    runtime: node
+    plan: free
+    rootDir: services/device-registry-service
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # Shared secret for service-to-service calls with no human behind
+      # them. Same value in data-ingestion and alert-rules.
+      - key: INTERNAL_SERVICE_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: STALE_AFTER_MS
+        value: "120000"
+      - key: SWEEP_INTERVAL_MS
+        value: "30000"
+      - key: NODE_ENV
+        value: production
+
+  # ---------- data-ingestion-service ----------
+  # Serves REST *and* the MQTT-over-WebSocket broker on one port, which is
+  # what makes it deployable here at all — Render exposes exactly one port
+  # per service.
+  - type: web
+    name: data-ingestion-service
+    runtime: node
+    plan: free
+    rootDir: services/data-ingestion-service
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: INTERNAL_SERVICE_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DEVICE_REGISTRY_URL
+        sync: false
+      - key: ALERT_SERVICE_URL
+        sync: false
+      - key: RING_BUFFER_SIZE
+        value: "50"
+      - key: VIEWER_SCOPE_REFRESH_MS
+        value: "30000"
+      # Keep well below device-registry's STALE_AFTER_MS or devices flicker
+      # offline between liveness reports.
+      - key: LIVENESS_THROTTLE_MS
+        value: "30000"
+      - key: NODE_ENV
+        value: production
+
+  # ---------- alert-rules-service ----------
+  - type: web
+    name: alert-rules-service
+    runtime: node
+    plan: free
+    rootDir: services/alert-rules-service
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: INTERNAL_SERVICE_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DEVICE_REGISTRY_URL
+        sync: false
+      - key: TEMP_THRESHOLD_C
+        value: "35"
+      - key: BATTERY_THRESHOLD_PCT
+        value: "20"
+      - key: ALERT_COOLDOWN_MS
+        value: "300000"
+      - key: SOUND_BASELINE_WINDOW
+        value: "20"
+      - key: SOUND_Z_SCORE_THRESHOLD
+        value: "2.5"
+      # Optional Slack incoming webhook; leave blank to just log alerts.
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
+
+  # ---------- api-gateway ----------
+  - type: web
+    name: api-gateway
+    runtime: node
+    plan: free
+    rootDir: services/api-gateway
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: AUTH_URL
+        sync: false
+      - key: DEVICE_REGISTRY_URL
+        sync: false
+      - key: INGESTION_URL
+        sync: false
+      - key: ALERT_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: NODE_ENV
+        value: production
+
+  # ---------- dashboard (static) ----------
+  # Vite inlines every VITE_* value at BUILD time, so these are build
+  # inputs, not runtime config: changing one needs a rebuild, not a restart.
+  - type: web
+    name: iot-dashboard
+    runtime: static
+    rootDir: dashboard
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      # wss://, not ws:// — the page is served over HTTPS and browsers
+      # refuse to open an insecure socket from a secure page.
+      - key: VITE_MQTT_WS_URL
+        sync: false
+    routes:
+      # Client-side routing: without this, loading /login or /mobile-node
+      # directly (or refreshing on them) 404s, because no such file exists.
+      - type: rewrite
+        source: /*
+        destination: /index.html
