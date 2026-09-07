@@ -1,6 +1,21 @@
+// A phone at rest still reads ~9.8 m/s² because the accelerometer includes
+// gravity, so "moving" is judged by how far the magnitude departs from that,
+// not by whether it is above zero.
+const GRAVITY = 9.81;
+
+function motionState(motion) {
+  if (!motion || typeof motion.x !== 'number') return null;
+  const mag = Math.sqrt(motion.x ** 2 + motion.y ** 2 + motion.z ** 2);
+  const delta = Math.abs(mag - GRAVITY);
+  if (mag >= 25) return { label: 'shaken', mag, cls: 'bg-red-100 text-red-700' };
+  if (delta > 1.5) return { label: 'in motion', mag, cls: 'bg-amber-100 text-amber-700' };
+  return { label: 'at rest', mag, cls: 'bg-slate-100 text-slate-600' };
+}
+
 export default function DeviceCard({ device, reading, selected, onSelect }) {
   const isSim = reading?.source === 'simulator';
   const isReal = reading?.source === 'mobile-browser';
+  const motion = motionState(reading?.motion);
 
   return (
     <button
@@ -42,8 +57,14 @@ export default function DeviceCard({ device, reading, selected, onSelect }) {
           {typeof reading.soundLevel === 'number' && (
             <div><span className="text-slate-400">Sound</span><div className="font-medium">{reading.soundLevel} dB</div></div>
           )}
-          {reading.motion && typeof reading.motion.x === 'number' && (
-            <div><span className="text-slate-400">Motion</span><div className="font-medium">{Math.sqrt(reading.motion.x ** 2 + reading.motion.y ** 2 + reading.motion.z ** 2).toFixed(1)} m/s²</div></div>
+          {motion && (
+            <div>
+              <span className="text-slate-400">Motion</span>
+              <div className="font-medium flex items-center gap-1.5">
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${motion.cls}`}>{motion.label}</span>
+                <span className="text-slate-500 text-xs">{motion.mag.toFixed(1)} m/s²</span>
+              </div>
+            </div>
           )}
           {reading.orientation && typeof reading.orientation.beta === 'number' && (
             <div><span className="text-slate-400">Tilt</span><div className="font-medium">{Math.round(reading.orientation.beta)}° / {Math.round(reading.orientation.gamma)}°</div></div>
