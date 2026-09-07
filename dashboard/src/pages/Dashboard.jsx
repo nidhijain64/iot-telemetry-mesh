@@ -37,7 +37,11 @@ export default function Dashboard() {
 
     getDevices().then(setDevices).catch(() => setError('Could not load devices'));
     getAlerts().then(setAlerts).catch(() => setError('Could not load alerts'));
-    const alertPoll = setInterval(() => {
+    // Both are polled: isOnline and lastSeenAt are decided server-side (by the
+    // liveness reports and the stale sweep), so without re-fetching, a device
+    // that goes quiet keeps rendering as "online" for as long as the tab is open.
+    const poll = setInterval(() => {
+      getDevices().then(setDevices).catch(() => {});
       getAlerts().then(setAlerts).catch(() => {});
     }, 10000);
 
@@ -81,7 +85,7 @@ export default function Dashboard() {
     client.on('error', (err) => setError(`MQTT error: ${err.message}`));
 
     return () => {
-      clearInterval(alertPoll);
+      clearInterval(poll);
       client.end(true);
     };
   }, [navigate]);

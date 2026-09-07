@@ -1,6 +1,7 @@
 const Alert = require('./models/Alert');
 const { shouldFire } = require('./detectors/debounce');
 const { checkSoundAnomaly } = require('./detectors/soundBaseline');
+const { checkMotionSpike } = require('./detectors/motionSpike');
 const { sendWebhook } = require('./webhook');
 
 const TEMP_THRESHOLD_C = Number(process.env.TEMP_THRESHOLD_C) || 35;
@@ -38,6 +39,16 @@ async function checkReading(reading) {
         message: `Sound level ${reading.soundLevel}dB is ${anomaly.zScore.toFixed(1)} standard deviations above this device's recent baseline (${anomaly.mean.toFixed(1)}dB avg)`,
       });
     }
+  }
+
+  const spike = checkMotionSpike(reading.motion);
+  if (spike) {
+    candidates.push({
+      type: 'motion-shake',
+      severity: 'warning',
+      value: Math.round(spike.magnitude * 10) / 10,
+      message: `Device shaken — ${spike.magnitude.toFixed(1)} m/s² (${spike.gForce.toFixed(1)}g above rest)`,
+    });
   }
 
   const fired = [];

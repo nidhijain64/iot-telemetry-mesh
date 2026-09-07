@@ -21,6 +21,11 @@ const readingSchema = new mongoose.Schema(
       y: { type: Number },
       z: { type: Number },
     },
+    orientation: {
+      alpha: { type: Number },
+      beta: { type: Number },
+      gamma: { type: Number },
+    },
 
     receivedAt: { type: Date, required: true },
   },

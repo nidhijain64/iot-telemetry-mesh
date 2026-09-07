@@ -150,6 +150,8 @@ services:
         value: "20"
       - key: ALERT_COOLDOWN_MS
         value: "300000"
+      - key: MOTION_SHAKE_THRESHOLD
+        value: "25"
       - key: SOUND_BASELINE_WINDOW
         value: "20"
       - key: SOUND_Z_SCORE_THRESHOLD

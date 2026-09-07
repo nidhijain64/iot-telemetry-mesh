@@ -264,6 +264,7 @@ Connect over WebSockets to `ws://localhost:3003`.
 | `high-temperature` | above `TEMP_THRESHOLD_C` (default 35°C) |
 | `low-battery` | below `BATTERY_THRESHOLD_PCT` (default 20%) |
 | `sound-anomaly` | more than `SOUND_Z_SCORE_THRESHOLD` σ above that device's own rolling baseline |
+| `motion-shake` | acceleration magnitude above `MOTION_SHAKE_THRESHOLD` (default 25 m/s²) |
 
 Every alert type is debounced per device (`ALERT_COOLDOWN_MS`, default 5 min) so one noisy
 sensor fires once per sustained problem instead of once per reading. Critical alerts also

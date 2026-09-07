@@ -42,6 +42,12 @@ export default function DeviceCard({ device, reading, selected, onSelect }) {
           {typeof reading.soundLevel === 'number' && (
             <div><span className="text-slate-400">Sound</span><div className="font-medium">{reading.soundLevel} dB</div></div>
           )}
+          {reading.motion && typeof reading.motion.x === 'number' && (
+            <div><span className="text-slate-400">Motion</span><div className="font-medium">{Math.sqrt(reading.motion.x ** 2 + reading.motion.y ** 2 + reading.motion.z ** 2).toFixed(1)} m/s²</div></div>
+          )}
+          {reading.orientation && typeof reading.orientation.beta === 'number' && (
+            <div><span className="text-slate-400">Tilt</span><div className="font-medium">{Math.round(reading.orientation.beta)}° / {Math.round(reading.orientation.gamma)}°</div></div>
+          )}
           {reading.location && (
             <div><span className="text-slate-400">Location</span><div className="font-medium">{reading.location.lat?.toFixed(3)}, {reading.location.lng?.toFixed(3)}</div></div>
           )}

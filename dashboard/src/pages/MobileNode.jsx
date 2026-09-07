@@ -35,6 +35,7 @@ export default function MobileNode() {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const motionRef = useRef({ x: 0, y: 0, z: 0 });
+  const orientationRef = useRef(null);
   const intervalRef = useRef(null);
 
   function appendLog(msg) {
@@ -89,6 +90,13 @@ export default function MobileNode() {
     window.addEventListener('devicemotion', (event) => {
       const acc = event.accelerationIncludingGravity;
       if (acc) motionRef.current = { x: acc.x, y: acc.y, z: acc.z };
+    });
+
+    // Tilt. iOS gates this behind the same permission prompt as motion, which
+    // requestPermission() above has already answered for both.
+    window.addEventListener('deviceorientation', (event) => {
+      if (event.alpha === null && event.beta === null && event.gamma === null) return;
+      orientationRef.current = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
     });
 
     try {
@@ -159,6 +167,7 @@ export default function MobileNode() {
     });
 
     reading.motion = motionRef.current;
+    if (orientationRef.current) reading.orientation = orientationRef.current;
 
     const db = getSoundLevelDb();
     if (db !== null) reading.soundLevel = db;
