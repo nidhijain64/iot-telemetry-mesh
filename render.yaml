@@ -158,9 +158,11 @@ services:
         value: "20"
       - key: SOUND_Z_SCORE_THRESHOLD
         value: "2.5"
-      # Optional Slack incoming webhook; leave blank to just log alerts.
+      # Optional Slack incoming webhook. Empty is fine — critical alerts are
+      # logged instead of posted. `value: ""` rather than `sync: false` so
+      # Render treats it as set-and-empty instead of prompting for it.
       - key: ALERT_WEBHOOK_URL
-        sync: false
+        value: ""
       - key: NODE_ENV
         value: production
 
