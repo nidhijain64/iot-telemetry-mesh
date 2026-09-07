@@ -140,8 +140,23 @@ export default function MobileNode() {
     });
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // All three are ON by default and all three are wrong for measuring a
+      // room. Echo cancellation subtracts this device's own speaker output, so
+      // music playing on the phone reads as near-silence. Auto gain control
+      // normalises level, which is precisely the signal being measured — it
+      // pins loud and quiet to roughly the same number. Noise suppression
+      // strips the ambient sound that is the whole point here.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Safari starts an AudioContext suspended, and a suspended context feeds
+      // the analyser nothing but silence.
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
