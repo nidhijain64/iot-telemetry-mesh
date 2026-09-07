@@ -5,7 +5,9 @@ const { verifyToken } = require('../middleware/verifyToken');
 const { checkReading } = require('../checkEngine');
 
 const router = express.Router();
-const DEVICE_REGISTRY_URL = process.env.DEVICE_REGISTRY_URL || 'http://localhost:3002';
+const { serviceUrl } = require('../config/serviceUrl');
+
+const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
 
 // INTERNAL ONLY — called by data-ingestion-service on every message, not a
 // human request. Gated by the shared service key (same pattern as

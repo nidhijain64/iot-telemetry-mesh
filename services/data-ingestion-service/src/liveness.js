@@ -10,7 +10,9 @@
 
 const axios = require('axios');
 
-const DEVICE_REGISTRY_URL = process.env.DEVICE_REGISTRY_URL || 'http://localhost:3002';
+const { serviceUrl } = require('./config/serviceUrl');
+
+const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
 const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY;
 
 // Must stay comfortably below device-registry's STALE_AFTER_MS (default 120s),

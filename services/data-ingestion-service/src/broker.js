@@ -14,8 +14,10 @@ const ringBuffer = require('./ringBuffer');
 const Reading = require('./models/Reading');
 const { reportSeen } = require('./liveness');
 
-const DEVICE_REGISTRY_URL = process.env.DEVICE_REGISTRY_URL || 'http://localhost:3002';
-const ALERT_SERVICE_URL = process.env.ALERT_SERVICE_URL || 'http://localhost:3004';
+const { serviceUrl } = require('./config/serviceUrl');
+
+const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
+const ALERT_SERVICE_URL = serviceUrl(process.env.ALERT_SERVICE_URL, 'http://localhost:3004');
 const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY;
 const JWT_SECRET = process.env.JWT_SECRET;
 

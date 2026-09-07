@@ -3,10 +3,14 @@
 # dashboard. Create it from the Render dashboard with
 # "New +" -> "Blueprint", pointed at this repo.
 #
-# Every value marked `sync: false` is NOT in this file on purpose: it is
-# either a secret or a URL that doesn't exist until the first deploy has
-# run. Render prompts for each one, and DEPLOY.md lists exactly what to
-# paste where.
+# Service URLs are wired automatically with `fromService` — Render fills them
+# in once the services exist, so there are no URLs to copy by hand and no way
+# to leave a `localhost` value in production. `fromService` yields a bare
+# hostname; the code adds the scheme (services/*/src/config/serviceUrl.js and
+# dashboard/src/lib/url.js).
+#
+# Only real secrets are left as `sync: false`: MONGO_URI, JWT_SECRET and
+# INTERNAL_SERVICE_KEY. Render prompts for those.
 #
 # The simulator is deliberately absent. It has to run continuously to
 # produce data, and Render's free plan spins idle services down — see
@@ -36,7 +40,10 @@ services:
       # The dashboard's URL, once it exists. Without it any site could
       # call this API from a logged-in user's browser.
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: iot-dashboard
+          property: host
       - key: NODE_ENV
         value: production
 
@@ -59,7 +66,10 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: iot-dashboard
+          property: host
       - key: STALE_AFTER_MS
         value: "120000"
       - key: SWEEP_INTERVAL_MS
@@ -87,11 +97,20 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: iot-dashboard
+          property: host
       - key: DEVICE_REGISTRY_URL
-        sync: false
+        fromService:
+          type: web
+          name: device-registry-service
+          property: host
       - key: ALERT_SERVICE_URL
-        sync: false
+        fromService:
+          type: web
+          name: alert-rules-service
+          property: host
       - key: RING_BUFFER_SIZE
         value: "50"
       - key: VIEWER_SCOPE_REFRESH_MS
@@ -120,9 +139,15 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: iot-dashboard
+          property: host
       - key: DEVICE_REGISTRY_URL
-        sync: false
+        fromService:
+          type: web
+          name: device-registry-service
+          property: host
       - key: TEMP_THRESHOLD_C
         value: "35"
       - key: BATTERY_THRESHOLD_PCT
@@ -150,15 +175,30 @@ services:
     healthCheckPath: /health
     envVars:
       - key: AUTH_URL
-        sync: false
+        fromService:
+          type: web
+          name: auth-service
+          property: host
       - key: DEVICE_REGISTRY_URL
-        sync: false
+        fromService:
+          type: web
+          name: device-registry-service
+          property: host
       - key: INGESTION_URL
-        sync: false
+        fromService:
+          type: web
+          name: data-ingestion-service
+          property: host
       - key: ALERT_URL
-        sync: false
+        fromService:
+          type: web
+          name: alert-rules-service
+          property: host
       - key: CORS_ORIGIN
-        sync: false
+        fromService:
+          type: web
+          name: iot-dashboard
+          property: host
       - key: NODE_ENV
         value: production
 
@@ -173,11 +213,18 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        sync: false
-      # wss://, not ws:// — the page is served over HTTPS and browsers
-      # refuse to open an insecure socket from a secure page.
+        fromService:
+          type: web
+          name: api-gateway
+          property: host
+      # Points at data-ingestion, NOT the gateway: the gateway proxies HTTP
+      # only, and a WebSocket upgrade does not survive it. The frontend adds
+      # the wss:// scheme itself (see dashboard/src/lib/url.js).
       - key: VITE_MQTT_WS_URL
-        sync: false
+        fromService:
+          type: web
+          name: data-ingestion-service
+          property: host
     routes:
       # Client-side routing: without this, loading /login or /mobile-node
       # directly (or refreshing on them) 404s, because no such file exists.

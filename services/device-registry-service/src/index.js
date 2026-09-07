@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const { serviceUrl, originList } = require('./config/serviceUrl');
 const connectDB = require('./config/db');
 const deviceRoutes = require('./routes/deviceRoutes');
 const { startStaleDeviceSweep } = require('./jobs/staleDeviceSweep');
@@ -22,10 +23,7 @@ if (!process.env.JWT_SECRET) {
 // Left unset it reflects any origin, which is fine on localhost but means any
 // site a logged-in user visits could call this API from their browser — so an
 // unset value in production is a real hole, and boot says so out loud.
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   console.warn('[boot] CORS_ORIGIN is not set — every origin is allowed. Set it in production.');

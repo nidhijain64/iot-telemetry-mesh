@@ -7,23 +7,21 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { serviceUrl, originList } = require('./config/serviceUrl');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
 
-const AUTH_URL = process.env.AUTH_URL || 'http://localhost:3001';
-const DEVICE_REGISTRY_URL = process.env.DEVICE_REGISTRY_URL || 'http://localhost:3002';
-const INGESTION_URL = process.env.INGESTION_URL || 'http://localhost:3003';
-const ALERT_URL = process.env.ALERT_URL || 'http://localhost:3004';
+const AUTH_URL = serviceUrl(process.env.AUTH_URL, 'http://localhost:3001');
+const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
+const INGESTION_URL = serviceUrl(process.env.INGESTION_URL, 'http://localhost:3003');
+const ALERT_URL = serviceUrl(process.env.ALERT_URL, 'http://localhost:3004');
 
 // Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
 // Left unset it reflects any origin, which is fine on localhost but means any
 // site a logged-in user visits could call this API from their browser — so an
 // unset value in production is a real hole, and boot says so out loud.
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   console.warn('[boot] CORS_ORIGIN is not set — every origin is allowed. Set it in production.');

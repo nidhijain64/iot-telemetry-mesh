@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import mqtt from 'mqtt';
 import { login, registerDevice, issueDeviceCredentials } from '../lib/api';
 import { getToken, setToken, clearToken } from '../lib/auth';
+import { withScheme } from '../lib/url';
 
 function secretKey(deviceId) {
   return `mobile_secret_${deviceId}`;
@@ -103,7 +104,7 @@ export default function MobileNode() {
       appendLog(`Microphone permission error: ${err.message} — sound level unavailable.`);
     }
 
-    const client = mqtt.connect(import.meta.env.VITE_MQTT_WS_URL, { username: deviceId, password: secret });
+    const client = mqtt.connect(withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss'), { username: deviceId, password: secret });
     clientRef.current = client;
 
     client.on('connect', () => {

@@ -59,40 +59,28 @@ services that don't exist yet.
 
 The first deploy will partially fail. That is expected.
 
-## 4. Fill in the URLs, then redeploy
+## 4. Let Render wire the services together
 
-Once the services exist, Render shows each one's URL (typically
-`https://<service-name>.onrender.com`). Set these under each service's
-**Environment** tab:
+Nothing to paste. `render.yaml` connects the services with `fromService`, so
+Render fills in every cross-service URL — `AUTH_URL`, `DEVICE_REGISTRY_URL`,
+`INGESTION_URL`, `ALERT_URL`, `ALERT_SERVICE_URL`, `CORS_ORIGIN`, `VITE_API_URL`
+and `VITE_MQTT_WS_URL` — once the services exist.
 
-| Service | Variable | Value |
-|---|---|---|
-| api-gateway | `AUTH_URL` | auth-service URL |
-| api-gateway | `DEVICE_REGISTRY_URL` | device-registry-service URL |
-| api-gateway | `INGESTION_URL` | data-ingestion-service URL |
-| api-gateway | `ALERT_URL` | alert-rules-service URL |
-| data-ingestion-service | `DEVICE_REGISTRY_URL` | device-registry-service URL |
-| data-ingestion-service | `ALERT_SERVICE_URL` | alert-rules-service URL |
-| alert-rules-service | `DEVICE_REGISTRY_URL` | device-registry-service URL |
-| *all five services* | `CORS_ORIGIN` | the **iot-dashboard** URL |
-| iot-dashboard | `VITE_API_URL` | the **api-gateway** URL |
-| iot-dashboard | `VITE_MQTT_WS_URL` | data-ingestion URL with `wss://` |
+`fromService` yields a bare hostname, and the code adds the scheme:
+`services/*/src/config/serviceUrl.js` on the backend, `dashboard/src/lib/url.js`
+on the frontend. That is also where `wss://` (not `ws://`) comes from for the
+MQTT connection, and why an origin in `CORS_ORIGIN` always ends up as a full
+origin the browser's `Origin` header can match.
 
-Include the scheme and no trailing slash: `https://api-gateway.onrender.com`.
+Two consequences worth knowing:
 
-`VITE_MQTT_WS_URL` is the one people get wrong. It points at
-**data-ingestion-service, not the gateway** — the gateway proxies HTTP only, and
-a WebSocket upgrade doesn't survive it. And it must be `wss://`, not `ws://`:
-the page is served over HTTPS, and browsers refuse an insecure socket from a
-secure page. So:
+* There is no way to leave `http://localhost:3002` in a production variable,
+  which is the single most common way this deploy goes wrong.
+* If you *do* override one of these by hand in Render's dashboard, your value
+  wins over the blueprint. Either a bare host or a full URL works.
 
-```
-wss://data-ingestion-service.onrender.com
-```
-
-Then redeploy everything. The dashboard in particular **must** be rebuilt after
-changing a `VITE_*` value — Vite inlines those at build time, so a restart alone
-keeps the old values baked in.
+The only values you supply are the real secrets: `MONGO_URI`, `JWT_SECRET`,
+`INTERNAL_SERVICE_KEY`, and optionally `ALERT_WEBHOOK_URL`.
 
 ## 5. Check it
 
@@ -146,5 +134,5 @@ require, so no certificate setup is needed.
 | Dashboard loads, every request fails | `CORS_ORIGIN` doesn't match the dashboard URL exactly |
 | Cards render but never show live values | `VITE_MQTT_WS_URL` wrong, or `ws://` instead of `wss://` |
 | Devices connect but no alerts | `INTERNAL_SERVICE_KEY` differs between ingestion and alert-rules |
-| Changed a `VITE_*` var, nothing happened | Rebuild the dashboard — a restart won't do it |
+| Changed a `VITE_*` var, nothing happened | Rebuild the dashboard — Vite inlines these at build time, so a restart won't do it |
 | First request hangs ~50s | Free instance waking from sleep |

@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { getToken, clearToken } from './auth';
+import { withScheme } from './url';
 
 // One entry point now, instead of 4 separate service URLs.
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = withScheme(import.meta.env.VITE_API_URL, 'https');
 
 export const client = axios.create({ baseURL: API_URL });
 

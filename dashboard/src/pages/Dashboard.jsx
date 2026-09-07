@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import mqtt from 'mqtt';
 import { getDevices, getAlerts, getTelemetryHistory } from '../lib/api';
 import { getToken, clearToken } from '../lib/auth';
+import { withScheme } from '../lib/url';
 import DeviceCard from '../components/DeviceCard';
 import AlertList from '../components/AlertList';
 // recharts is by far the heaviest dependency here and is only needed once a
@@ -10,7 +11,7 @@ import AlertList from '../components/AlertList';
 // on every first page load.
 const TelemetryChart = lazy(() => import('../components/TelemetryChart'));
 
-const MQTT_WS_URL = import.meta.env.VITE_MQTT_WS_URL;
+const MQTT_WS_URL = withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss');
 const TELEMETRY_PREFIX = 'telemetry/';
 const MAX_LIVE_POINTS = 300;
 
