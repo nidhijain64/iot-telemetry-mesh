@@ -8,20 +8,44 @@ function secretKey(deviceId) {
   return `mobile_secret_${deviceId}`;
 }
 
+const BROWSER_ID_KEY = 'iot_browser_id';
+
+// A device id built from the username alone made every phone belonging to one
+// account the SAME device: both published to telemetry/phone-<user>, so the
+// dashboard showed a single card flickering between them — and issuing
+// credentials for the second phone invalidated the first one's secret, silently
+// disconnecting it. This suffix is generated once per browser and kept in
+// localStorage, so each phone is its own device and keeps its own credentials.
+function browserId() {
+  let id = null;
+  try {
+    id = localStorage.getItem(BROWSER_ID_KEY);
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 8);
+      localStorage.setItem(BROWSER_ID_KEY, id);
+    }
+  } catch {
+    // Private mode with storage blocked — fall back to a per-session id so the
+    // page still works, at the cost of registering a new device each visit.
+    id = Math.random().toString(36).slice(2, 8);
+  }
+  return id;
+}
+
 export default function MobileNode() {
   const [token, setLocalToken] = useState(getToken());
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const [label, setLabel] = useState('My Phone');
+  const [label, setLabel] = useState(() => `${/Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iPhone' : 'Browser'} node`);
   const [issuedSecret, setIssuedSecret] = useState(null);
 
   // Both derived during render rather than synced through an effect: deviceId is
   // a pure function of the username, and the cached secret is a pure function of
   // deviceId. Writing them into state from an effect only added a second render
   // pass that could show a stale deviceId in between.
-  const deviceId = username ? `phone-${username}` : '';
+  const deviceId = username ? `phone-${username}-${browserId()}` : '';
   const cachedSecret = deviceId ? localStorage.getItem(secretKey(deviceId)) : null;
   const secret = issuedSecret ?? cachedSecret;
   const [settingUp, setSettingUp] = useState(false);
