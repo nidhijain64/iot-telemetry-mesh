@@ -3,14 +3,16 @@
 # dashboard. Create it from the Render dashboard with
 # "New +" -> "Blueprint", pointed at this repo.
 #
-# Service URLs are wired automatically with `fromService` — Render fills them
-# in once the services exist, so there are no URLs to copy by hand and no way
-# to leave a `localhost` value in production. `fromService` yields a bare
-# hostname; the code adds the scheme (services/*/src/config/serviceUrl.js and
-# dashboard/src/lib/url.js).
+# Everything marked `sync: false` is set in the Render dashboard, not here:
+# secrets, and the service URLs, which don't exist until the services do.
 #
-# Only real secrets are left as `sync: false`: MONGO_URI, JWT_SECRET and
-# INTERNAL_SERVICE_KEY. Render prompts for those.
+# `sync: false` also means a blueprint re-sync LEAVES THOSE VALUES ALONE. An
+# earlier version wired the URLs with `fromService`, which resolved to nothing
+# and silently blanked them on every sync — taking the gateway and the built
+# dashboard down with it.
+#
+# A bare hostname or a full URL both work: the code adds the scheme
+# (services/*/src/config/serviceUrl.js, dashboard/src/lib/url.js).
 #
 # The simulator is deliberately absent. It has to run continuously to
 # produce data, and Render's free plan spins idle services down — see
@@ -39,10 +41,7 @@ services:
       # The dashboard's URL, once it exists. Without it any site could
       # call this API from a logged-in user's browser.
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: iot-dashboard
-          property: host
+        sync: false
       - key: NODE_ENV
         value: production
 
@@ -64,10 +63,7 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: iot-dashboard
-          property: host
+        sync: false
       - key: STALE_AFTER_MS
         value: "120000"
       - key: SWEEP_INTERVAL_MS
@@ -94,20 +90,11 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: iot-dashboard
-          property: host
+        sync: false
       - key: DEVICE_REGISTRY_URL
-        fromService:
-          type: web
-          name: device-registry-service
-          property: host
+        sync: false
       - key: ALERT_SERVICE_URL
-        fromService:
-          type: web
-          name: alert-rules-service
-          property: host
+        sync: false
       - key: RING_BUFFER_SIZE
         value: "50"
       - key: VIEWER_SCOPE_REFRESH_MS
@@ -135,15 +122,9 @@ services:
       - key: INTERNAL_SERVICE_KEY
         sync: false
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: iot-dashboard
-          property: host
+        sync: false
       - key: DEVICE_REGISTRY_URL
-        fromService:
-          type: web
-          name: device-registry-service
-          property: host
+        sync: false
       - key: TEMP_THRESHOLD_C
         value: "35"
       - key: BATTERY_THRESHOLD_PCT
@@ -174,30 +155,15 @@ services:
     startCommand: node src/index.js
     envVars:
       - key: AUTH_URL
-        fromService:
-          type: web
-          name: auth-service
-          property: host
+        sync: false
       - key: DEVICE_REGISTRY_URL
-        fromService:
-          type: web
-          name: device-registry-service
-          property: host
+        sync: false
       - key: INGESTION_URL
-        fromService:
-          type: web
-          name: data-ingestion-service
-          property: host
+        sync: false
       - key: ALERT_URL
-        fromService:
-          type: web
-          name: alert-rules-service
-          property: host
+        sync: false
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: iot-dashboard
-          property: host
+        sync: false
       - key: NODE_ENV
         value: production
 
@@ -212,18 +178,12 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: api-gateway
-          property: host
+        sync: false
       # Points at data-ingestion, NOT the gateway: the gateway proxies HTTP
       # only, and a WebSocket upgrade does not survive it. The frontend adds
       # the wss:// scheme itself (see dashboard/src/lib/url.js).
       - key: VITE_MQTT_WS_URL
-        fromService:
-          type: web
-          name: data-ingestion-service
-          property: host
+        sync: false
     routes:
       # Client-side routing: without this, loading /login or /mobile-node
       # directly (or refreshing on them) 404s, because no such file exists.
