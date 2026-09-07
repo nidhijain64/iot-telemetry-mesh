@@ -166,6 +166,10 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+      # Free instances sleep; a cold start takes ~30-60s. Without a generous
+      # timeout the first request after idle 502s while the upstream wakes.
+      - key: UPSTREAM_TIMEOUT_MS
+        value: "90000"
 
   # ---------- dashboard (static) ----------
   # Vite inlines every VITE_* value at BUILD time, so these are build
