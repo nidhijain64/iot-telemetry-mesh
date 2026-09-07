@@ -27,7 +27,6 @@ services:
     rootDir: services/auth-service
     buildCommand: npm ci
     startCommand: node src/index.js
-    healthCheckPath: /health
     envVars:
       - key: MONGO_URI
         sync: false
@@ -55,7 +54,6 @@ services:
     rootDir: services/device-registry-service
     buildCommand: npm ci
     startCommand: node src/index.js
-    healthCheckPath: /health
     envVars:
       - key: MONGO_URI
         sync: false
@@ -88,7 +86,6 @@ services:
     rootDir: services/data-ingestion-service
     buildCommand: npm ci
     startCommand: node src/index.js
-    healthCheckPath: /health
     envVars:
       - key: MONGO_URI
         sync: false
@@ -130,7 +127,6 @@ services:
     rootDir: services/alert-rules-service
     buildCommand: npm ci
     startCommand: node src/index.js
-    healthCheckPath: /health
     envVars:
       - key: MONGO_URI
         sync: false
@@ -174,7 +170,6 @@ services:
     rootDir: services/api-gateway
     buildCommand: npm ci
     startCommand: node src/index.js
-    healthCheckPath: /health
     envVars:
       - key: AUTH_URL
         fromService:
