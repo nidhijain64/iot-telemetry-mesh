@@ -46,6 +46,13 @@ export async function login(username, password) {
   return res.data;
 }
 
+// Always creates an 'operator' — the API ignores any role sent from a client,
+// so a new phone user can never sign themselves up as an admin.
+export async function registerUser(username, password) {
+  const res = await client.post('/api/auth/register', { username, password });
+  return res.data;
+}
+
 export async function getDevices() {
   const res = await client.get('/api/devices');
   return res.data;

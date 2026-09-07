@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import mqtt from 'mqtt';
-import { login, registerDevice, issueDeviceCredentials } from '../lib/api';
+import { login, registerUser, registerDevice, issueDeviceCredentials } from '../lib/api';
 import { getToken, setToken, clearToken } from '../lib/auth';
 import { withScheme } from '../lib/url';
 
@@ -37,6 +37,8 @@ export default function MobileNode() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const [label, setLabel] = useState(() => `${/Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iPhone' : 'Browser'} node`);
   const [issuedSecret, setIssuedSecret] = useState(null);
@@ -66,15 +68,29 @@ export default function MobileNode() {
     setLog((prev) => `${msg}\n${prev}`.slice(0, 2000));
   }
 
+  // Sign-up and sign-in share a handler: registering returns no token, so a new
+  // account is logged in straight afterwards rather than making someone type
+  // the same credentials twice on a phone keyboard.
   async function handleLogin(e) {
     e.preventDefault();
     setLoginError('');
+    setBusy(true);
     try {
+      if (isSignUp) {
+        await registerUser(username, password);
+      }
       const { token: newToken } = await login(username, password);
       setToken(newToken);
       setLocalToken(newToken);
     } catch (err) {
-      setLoginError(err.response?.data?.error || 'Login failed');
+      const msg = err.response?.data?.error;
+      if (isSignUp && err.response?.status === 409) {
+        setLoginError('That username is taken — try logging in instead.');
+      } else {
+        setLoginError(msg || (isSignUp ? 'Could not create account' : 'Login failed'));
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -215,7 +231,9 @@ export default function MobileNode() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
         <form onSubmit={handleLogin} className="bg-slate-800 p-8 rounded-xl w-80 space-y-4">
-          <h1 className="text-xl font-semibold">Log in to send data from this phone</h1>
+          <h1 className="text-xl font-semibold">
+            {isSignUp ? 'Create an account for this phone' : 'Log in to send data from this phone'}
+          </h1>
           {loginError && <p className="text-red-400 text-sm">{loginError}</p>}
           <input
             className="w-full bg-slate-700 rounded-lg px-3 py-2"
@@ -227,11 +245,23 @@ export default function MobileNode() {
             className="w-full bg-slate-700 rounded-lg px-3 py-2"
             placeholder="Password"
             type="password"
+            autoComplete={isSignUp ? 'new-password' : 'current-password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <button className="w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg py-2 font-medium">
-            Log in
+          {isSignUp && <p className="text-xs text-slate-400">At least 8 characters.</p>}
+          <button
+            disabled={busy}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-lg py-2 font-medium"
+          >
+            {busy ? 'Please wait…' : isSignUp ? 'Create account' : 'Log in'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIsSignUp(!isSignUp); setLoginError(''); }}
+            className="w-full text-sm text-slate-400 hover:text-white"
+          >
+            {isSignUp ? 'Already have an account? Log in' : 'New here? Create an account'}
           </button>
         </form>
       </div>
