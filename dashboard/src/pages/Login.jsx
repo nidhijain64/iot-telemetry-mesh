@@ -3,22 +3,32 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../lib/api';
 import { setToken } from '../lib/auth';
 
+// Shown only when both are configured, so the hint appears on the public demo
+// deployment and never in a real one. The account is a read-only-ish operator —
+// registration always creates 'operator', so a visitor cannot reach admin.
+const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME;
+const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD;
+
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function signIn(user, pass) {
     setError('');
     try {
-      const { token } = await login(username, password);
+      const { token } = await login(user, pass);
       setToken(token);
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    signIn(username, password);
   }
 
   return (
@@ -42,6 +52,31 @@ export default function Login() {
         <button className="w-full bg-slate-800 text-white rounded-lg py-2 font-medium hover:bg-slate-700">
           Log in
         </button>
+
+        {DEMO_USERNAME && DEMO_PASSWORD && (
+          <div className="pt-3 border-t border-slate-200 space-y-2">
+            <p className="text-xs text-slate-500">
+              Just looking around? Use the demo account:
+            </p>
+            <p className="text-xs font-mono text-slate-600">
+              {DEMO_USERNAME} / {DEMO_PASSWORD}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setUsername(DEMO_USERNAME);
+                setPassword(DEMO_PASSWORD);
+                signIn(DEMO_USERNAME, DEMO_PASSWORD);
+              }}
+              className="w-full border border-slate-300 text-slate-700 rounded-lg py-2 text-sm font-medium hover:border-slate-500"
+            >
+              Sign in as demo
+            </button>
+            <p className="text-xs text-slate-400">
+              Services sleep when idle — the first load can take up to a minute.
+            </p>
+          </div>
+        )}
       </form>
     </div>
   );
