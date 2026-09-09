@@ -1,7 +1,6 @@
-import { useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis,
 } from 'recharts';
 
 // One metric at a time on a shared axis. Temperature (~15-40°C), sound
@@ -30,10 +29,13 @@ const METRICS = [
   { key: 'humidity', label: 'Humidity', unit: '%', color: '#0891b2' },
 ];
 
+// Leaflet and its CSS only load once someone opens the map.
+const DeviceMap = lazy(() => import('./DeviceMap'));
+
 // Location is deliberately not in METRICS: latitude against time is a
-// meaningless line. A track — longitude on X, latitude on Y — is the shape
-// people actually recognise as movement.
-const TRACK = { key: '__track', label: 'Track', color: '#0891b2' };
+// meaningless line, and a scatter of raw coordinates is not much better —
+// nobody reads "81.7737" as a place. It gets a real map instead.
+const TRACK = { key: '__track', label: 'Map', color: '#0891b2' };
 
 function readValue(metric, reading) {
   const v = metric.derive ? metric.derive(reading) : reading[metric.key];
@@ -94,28 +96,11 @@ export default function TelemetryChart({ readings, metric, onMetricChange }) {
     return (
       <div className="space-y-3">
         <MetricButtons available={available} active={active} onMetricChange={onMetricChange} />
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: -8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              {/* Both axes auto-scale to the points, so a few metres of movement
-                  fills the panel rather than vanishing at world scale. */}
-              <XAxis type="number" dataKey="lng" name="Longitude" domain={['dataMin', 'dataMax']}
-                tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(v) => v.toFixed(4)} />
-              <YAxis type="number" dataKey="lat" name="Latitude" domain={['dataMin', 'dataMax']}
-                tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(v) => v.toFixed(4)} width={64} />
-              <ZAxis range={[40, 40]} />
-              <Tooltip
-                cursor={{ strokeDasharray: '3 3' }}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                formatter={(v, n) => [typeof v === 'number' ? v.toFixed(5) : v, n]}
-              />
-              <Scatter data={track} fill={TRACK.color} line={{ stroke: TRACK.color, strokeWidth: 1.5 }} />
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
+        <Suspense fallback={<p className="text-sm text-slate-400">Loading map…</p>}>
+          <DeviceMap points={track} />
+        </Suspense>
         <p className="text-xs text-slate-400">
-          {track.length} fixes. Axes auto-scale, so this shows the shape of the route rather than absolute distance.
+          {track.length} GPS fixes, oldest to newest. The filled marker is the most recent.
         </p>
       </div>
     );
