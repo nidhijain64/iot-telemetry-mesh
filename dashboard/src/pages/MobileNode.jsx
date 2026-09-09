@@ -32,9 +32,24 @@ function browserId() {
   return id;
 }
 
+// The username is in the token's payload, which is plain base64 and readable
+// client-side — signature verification is the server's job, and this is only
+// used to label the session, never to grant anything.
+function usernameFromToken(token) {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload)).username || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function MobileNode() {
   const [token, setLocalToken] = useState(getToken());
-  const [username, setUsername] = useState('');
+  // Seeded from an existing token, so arriving with a dashboard session already
+  // in localStorage still produces a valid deviceId. Without this, username was
+  // empty, deviceId came out as '' and setup failed with no visible reason.
+  const [username, setUsername] = useState(() => usernameFromToken(getToken() || ''));
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   // Opens on sign-up. Most people reaching this page arrived from the demo link
@@ -44,6 +59,7 @@ export default function MobileNode() {
   // dashboard's per-user scoping then has something real to demonstrate.
   const [isSignUp, setIsSignUp] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirmedAccount, setConfirmedAccount] = useState(false);
 
   const [label, setLabel] = useState(() => `${/Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iPhone' : 'Browser'} node`);
   const [issuedSecret, setIssuedSecret] = useState(null);
@@ -89,6 +105,7 @@ export default function MobileNode() {
       const { token: newToken } = await login(username, password);
       setToken(newToken);
       setLocalToken(newToken);
+      setConfirmedAccount(true); // signing in here is itself the choice
     } catch (err) {
       const msg = err.response?.data?.error;
       if (isSignUp && err.response?.status === 409) {
@@ -107,6 +124,7 @@ export default function MobileNode() {
     setUsername('');
     setPassword('');
     setIssuedSecret(null);
+    setConfirmedAccount(false);
   }
 
   async function setupDevice() {
@@ -258,6 +276,42 @@ export default function MobileNode() {
     if (audioCtxRef.current) audioCtxRef.current.close();
     setStatus('idle');
     appendLog('Stopped.');
+  }
+
+  // Landing here with a session from the main dashboard would otherwise register
+  // this phone under whichever account was signed in there — for a visitor
+  // following the demo link, that means the shared demo account. Make it a
+  // choice rather than a default.
+  if (token && !confirmedAccount) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
+        <div className="bg-slate-800 p-8 rounded-xl w-80 space-y-4">
+          <h1 className="text-xl font-semibold">Which account should this phone report to?</h1>
+          <p className="text-sm text-slate-300">
+            You are signed in as <span className="font-mono text-emerald-400">{username || 'this account'}</span>.
+            Its devices appear on that account&rsquo;s dashboard.
+          </p>
+          <button
+            onClick={() => setConfirmedAccount(true)}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg py-2 font-medium"
+          >
+            Continue as {username || 'this account'}
+          </button>
+          <button
+            onClick={() => {
+              clearToken();
+              setLocalToken(null);
+              setUsername('');
+              setPassword('');
+              setIsSignUp(true);
+            }}
+            className="w-full border border-slate-600 text-slate-300 hover:text-white rounded-lg py-2 text-sm"
+          >
+            Use a different account
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!token) {
