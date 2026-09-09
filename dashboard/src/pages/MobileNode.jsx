@@ -62,6 +62,8 @@ export default function MobileNode() {
   const analyserRef = useRef(null);
   const motionRef = useRef({ x: 0, y: 0, z: 0 });
   const orientationRef = useRef(null);
+  const locationRef = useRef(null);
+  const geoWatchRef = useRef(null);
   const intervalRef = useRef(null);
 
   function appendLog(msg) {
@@ -131,6 +133,23 @@ export default function MobileNode() {
       const acc = event.accelerationIncludingGravity;
       if (acc) motionRef.current = { x: acc.x, y: acc.y, z: acc.z };
     });
+
+    // One continuous GPS watch instead of a fresh fix per reading. Asking for a
+    // position every publish gave iOS Safari 3 seconds to acquire one, which it
+    // almost never manages — location was missing from every single iPhone
+    // reading while Android, which answers from cache, looked fine. A watch
+    // acquires once and then updates as the device moves, so publishing reads a
+    // value that is already there. maximumAge lets it reuse a recent fix rather
+    // than waking the GPS each time and draining the battery.
+    if (navigator.geolocation) {
+      geoWatchRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          locationRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        },
+        (err) => appendLog(`Location unavailable: ${err.message}`),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
+      );
+    }
 
     // Tilt. iOS gates this behind the same permission prompt as motion, which
     // requestPermission() above has already answered for both.
@@ -209,17 +228,7 @@ export default function MobileNode() {
       }
     }
 
-    await new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve();
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          reading.location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          resolve();
-        },
-        () => resolve(),
-        { timeout: 3000 }
-      );
-    });
+    if (locationRef.current) reading.location = locationRef.current;
 
     reading.motion = motionRef.current;
     if (orientationRef.current) reading.orientation = orientationRef.current;
@@ -236,6 +245,10 @@ export default function MobileNode() {
 
   function stopMonitoring() {
     clearInterval(intervalRef.current);
+    if (geoWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(geoWatchRef.current);
+      geoWatchRef.current = null;
+    }
     if (clientRef.current) clientRef.current.end(true);
     if (audioCtxRef.current) audioCtxRef.current.close();
     setStatus('idle');
