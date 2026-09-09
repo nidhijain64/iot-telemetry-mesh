@@ -56,12 +56,7 @@ export default function Login() {
 
         {DEMO_USERNAME && DEMO_PASSWORD && (
           <div className="pt-3 border-t border-slate-200 space-y-2">
-            <p className="text-xs text-slate-500">
-              Just looking around? Sign in with the demo account:
-            </p>
-            <p className="text-xs font-mono text-slate-700 bg-slate-100 rounded px-2 py-1.5">
-              {DEMO_USERNAME} &nbsp;/&nbsp; {DEMO_PASSWORD}
-            </p>
+            <p className="text-xs text-slate-500">Just looking around?</p>
             <button
               type="button"
               onClick={() => {
