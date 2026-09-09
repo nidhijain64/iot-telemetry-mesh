@@ -14,6 +14,7 @@ const TelemetryChart = lazy(() => import('../components/TelemetryChart'));
 const MQTT_WS_URL = withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss');
 const TELEMETRY_PREFIX = 'telemetry/';
 const MAX_LIVE_POINTS = 300;
+const GUIDE_DISMISSED_KEY = 'iot_guide_dismissed';
 
 export default function Dashboard() {
   const [devices, setDevices] = useState([]);
@@ -26,6 +27,25 @@ export default function Dashboard() {
   const [history, setHistory] = useState({ deviceId: null, rows: [] });
   const [metric, setMetric] = useState('temperature');
   const [error, setError] = useState('');
+  // Someone arriving from a link has no idea this page expects a phone to be
+  // feeding it. Read during render, not in an effect, so the panel doesn't
+  // flash open for anyone who already dismissed it.
+  const [showGuide, setShowGuide] = useState(() => {
+    try {
+      return localStorage.getItem(GUIDE_DISMISSED_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+
+  function dismissGuide() {
+    setShowGuide(false);
+    try {
+      localStorage.setItem(GUIDE_DISMISSED_KEY, '1');
+    } catch {
+      // Storage blocked — the panel simply returns on the next visit.
+    }
+  }
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -125,6 +145,43 @@ export default function Dashboard() {
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
+
+      {showGuide && (
+        <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <h2 className="font-semibold text-slate-800">Turn your phone into a sensor</h2>
+            <button
+              onClick={dismissGuide}
+              className="text-xs text-slate-400 hover:text-slate-700 shrink-0"
+            >
+              Hide
+            </button>
+          </div>
+          <p className="text-sm text-slate-600">
+            Devices below stream live readings over MQTT. To add one, open this
+            page on your phone — it publishes real microphone level, movement and
+            GPS from the browser, no app to install.
+          </p>
+          <ol className="text-sm text-slate-600 list-decimal pl-5 space-y-1">
+            <li>
+              On your phone, open{' '}
+              <a
+                href="/mobile-node"
+                className="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5 text-slate-800 hover:underline"
+              >
+                {typeof window !== 'undefined' ? window.location.host : ''}/mobile-node
+              </a>
+            </li>
+            <li>Sign in, or create an account there</li>
+            <li>Tap <span className="font-medium">Set up this phone</span>, then start monitoring and allow the sensor prompts</li>
+            <li>Come back here — your phone appears below, streaming live</li>
+          </ol>
+          <p className="text-xs text-slate-400">
+            Shake the phone to fire a motion alert, or make a sudden noise to trip
+            the sound-anomaly detector. Click any device card for its history.
+          </p>
+        </section>
+      )}
 
       <section>
         <h2 className="text-sm font-medium text-slate-500 mb-2">Devices</h2>

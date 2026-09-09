@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../lib/api';
 import { setToken } from '../lib/auth';
 
-// Shown only when both are configured, so the hint appears on the public demo
-// deployment and never in a real one. The account is a read-only-ish operator —
-// registration always creates 'operator', so a visitor cannot reach admin.
-const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME;
-const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD;
+// Deliberately committed, not hidden in config: this deployment exists to be
+// opened by strangers, so the credentials are part of the page rather than
+// something a visitor has to be handed separately. Set the VITE_DEMO_* vars to
+// point at a different account, or to blank to remove the panel entirely.
+const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME ?? 'admin1';
+const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD ?? 'FleetAdmin2026';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -56,10 +57,10 @@ export default function Login() {
         {DEMO_USERNAME && DEMO_PASSWORD && (
           <div className="pt-3 border-t border-slate-200 space-y-2">
             <p className="text-xs text-slate-500">
-              Just looking around? Use the demo account:
+              Just looking around? Sign in with the demo account:
             </p>
-            <p className="text-xs font-mono text-slate-600">
-              {DEMO_USERNAME} / {DEMO_PASSWORD}
+            <p className="text-xs font-mono text-slate-700 bg-slate-100 rounded px-2 py-1.5">
+              {DEMO_USERNAME} &nbsp;/&nbsp; {DEMO_PASSWORD}
             </p>
             <button
               type="button"
