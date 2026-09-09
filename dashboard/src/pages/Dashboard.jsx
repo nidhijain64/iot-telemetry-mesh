@@ -14,6 +14,10 @@ const TelemetryChart = lazy(() => import('../components/TelemetryChart'));
 const MQTT_WS_URL = withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss');
 const TELEMETRY_PREFIX = 'telemetry/';
 const MAX_LIVE_POINTS = 300;
+// sessionStorage, not localStorage: hiding the guide should last the visit, not
+// forever. On a shared demo the next person to open the link is a first-time
+// visitor who needs it, and localStorage made it disappear permanently for
+// everyone using that browser — including across logout.
 const GUIDE_DISMISSED_KEY = 'iot_guide_dismissed';
 
 export default function Dashboard() {
@@ -32,7 +36,7 @@ export default function Dashboard() {
   // flash open for anyone who already dismissed it.
   const [showGuide, setShowGuide] = useState(() => {
     try {
-      return localStorage.getItem(GUIDE_DISMISSED_KEY) !== '1';
+      return sessionStorage.getItem(GUIDE_DISMISSED_KEY) !== '1';
     } catch {
       return true;
     }
@@ -41,7 +45,7 @@ export default function Dashboard() {
   function dismissGuide() {
     setShowGuide(false);
     try {
-      localStorage.setItem(GUIDE_DISMISSED_KEY, '1');
+      sessionStorage.setItem(GUIDE_DISMISSED_KEY, '1');
     } catch {
       // Storage blocked — the panel simply returns on the next visit.
     }
@@ -129,6 +133,13 @@ export default function Dashboard() {
 
   function handleLogout() {
     clearToken();
+    try {
+      // Logging out ends the visit, so the next person to sign in on this
+      // browser gets the guide back.
+      sessionStorage.removeItem(GUIDE_DISMISSED_KEY);
+    } catch {
+      // Storage blocked — nothing was stored to clear.
+    }
     navigate('/login');
   }
 
