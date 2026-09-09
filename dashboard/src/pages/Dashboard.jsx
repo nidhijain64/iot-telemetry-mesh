@@ -172,7 +172,7 @@ export default function Dashboard() {
                 {typeof window !== 'undefined' ? window.location.host : ''}/mobile-node
               </a>
             </li>
-            <li>Sign in, or create an account there</li>
+            <li>Create your own account — your phone stays separate from other visitors&rsquo; devices</li>
             <li>Tap <span className="font-medium">Set up this phone</span>, then start monitoring and allow the sensor prompts</li>
             <li>Come back here — your phone appears below, streaming live</li>
           </ol>

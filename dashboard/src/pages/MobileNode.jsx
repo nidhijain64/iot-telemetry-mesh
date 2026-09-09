@@ -37,7 +37,12 @@ export default function MobileNode() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  // Opens on sign-up. Most people reaching this page arrived from the demo link
+  // and have no account; more importantly, a visitor signing in as the shared
+  // demo admin would register their phone into the demo fleet, mixing their
+  // readings with everyone else's. Their own account keeps it separate, and the
+  // dashboard's per-user scoping then has something real to demonstrate.
+  const [isSignUp, setIsSignUp] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const [label, setLabel] = useState(() => `${/Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iPhone' : 'Browser'} node`);
