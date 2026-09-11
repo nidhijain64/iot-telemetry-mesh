@@ -40,8 +40,47 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway'
 // Waiting it out costs nothing when services are warm.
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS) || 90 * 1000;
 
+// Free instances are suspended when idle. A timeout alone does not cover this:
+// the first request to a sleeping service can be REJECTED outright rather than
+// held open, so the proxy fails in well under a second and no amount of waiting
+// helps. What does help is that the failed attempt itself triggers the wake —
+// so the fix is to notice the service is cold, wait for it to come up, and only
+// then proxy.
+//
+// Tracked per upstream so the cost is paid once per idle period, not per
+// request: a warm upstream goes straight through with no added latency.
+const lastSeenUp = new Map();
+const ASSUME_ASLEEP_AFTER_MS = 10 * 60 * 1000;
+
+async function waitUntilAwake(target, prefix) {
+  const last = lastSeenUp.get(target);
+  if (last !== undefined && Date.now() - last < ASSUME_ASLEEP_AFTER_MS) return true;
+
+  const deadline = Date.now() + UPSTREAM_TIMEOUT_MS;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    attempt += 1;
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 20000);
+      const res = await fetch(`${target}/health`, { signal: controller.signal });
+      clearTimeout(t);
+      if (res.ok) {
+        if (attempt > 1) console.log(`[gateway] ${prefix} awake after ${attempt} attempts`);
+        lastSeenUp.set(target, Date.now());
+        return true;
+      }
+    } catch {
+      // Still starting, or refusing connections while it boots.
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  console.error(`[gateway] ${prefix} never came up within ${UPSTREAM_TIMEOUT_MS}ms`);
+  return false;
+}
+
 function upstream(target, prefix) {
-  return createProxyMiddleware({
+  const proxy = createProxyMiddleware({
     target,
     changeOrigin: true,
     // pathRewrite adds the mount prefix back — Express strips it before the
@@ -56,20 +95,26 @@ function upstream(target, prefix) {
     timeout: UPSTREAM_TIMEOUT_MS,
     on: {
       error: (err, req, res) => {
-        console.error(`[gateway] ${prefix} upstream failed: ${err.code || err.message}`);
+        console.error(`[gateway] ${prefix} proxy error: ${err.code || err.message}`);
+        // A failed attempt may itself have woken the service, so don't keep
+        // treating it as up.
+        lastSeenUp.delete(target);
         if (res.headersSent || typeof res.status !== 'function') return;
-        // A timeout here almost always means the upstream is still waking, which
-        // is worth telling the caller apart from the service being genuinely down.
-        const waking = err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT';
-        res.status(waking ? 504 : 502).json({
-          error: waking
-            ? 'Upstream service is starting up — please retry in a moment.'
-            : 'Upstream service unavailable',
-          service: prefix,
-        });
+        res.status(502).json({ error: 'Upstream service unavailable', service: prefix });
       },
     },
   });
+
+  return async (req, res, next) => {
+    const awake = await waitUntilAwake(target, prefix);
+    if (!awake) {
+      return res.status(503).json({
+        error: 'Upstream service is starting up and did not respond in time. Please retry.',
+        service: prefix,
+      });
+    }
+    return proxy(req, res, next);
+  };
 }
 
 app.use('/api/auth', upstream(AUTH_URL, '/api/auth'));
