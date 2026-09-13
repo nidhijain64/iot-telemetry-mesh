@@ -33,6 +33,18 @@ app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway' }));
 
+// The browser needs these to warm the services itself. A request from the
+// gateway to a sleeping instance is rejected before it arrives — its logs show
+// nothing at all — so the gateway cannot wake its own upstreams. A request from
+// a browser does wake them, reliably, so the dashboard pings each /health on
+// load and the services are up by the time anyone submits a password.
+//
+// These are public Render hostnames and every route behind them still requires
+// a token; listing them exposes nothing that isn't already reachable.
+app.get('/upstreams', (req, res) => {
+  res.json({ services: [AUTH_URL, DEVICE_REGISTRY_URL, INGESTION_URL, ALERT_URL] });
+});
+
 // On a free hosting plan an idle service is suspended and takes ~30-60s to come
 // back on the first request. The default proxy timeout is shorter than that, so
 // the very first call after a quiet period failed with a bare 502 even though

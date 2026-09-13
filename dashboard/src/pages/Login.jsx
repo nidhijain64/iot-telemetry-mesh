@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../lib/api';
 import { setToken } from '../lib/auth';
+import { warmUpServices } from '../lib/warmup';
 
 // Deliberately committed, not hidden in config: this deployment exists to be
 // opened by strangers, so the credentials are part of the page rather than
@@ -15,6 +16,12 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  // Starts the backend waking the moment the page opens, so the services are up
+  // by the time someone has typed their password.
+  useEffect(() => {
+    warmUpServices();
+  }, []);
 
   async function signIn(user, pass) {
     setError('');
