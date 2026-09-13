@@ -4,6 +4,7 @@ import mqtt from 'mqtt';
 import { getDevices, getAlerts, getTelemetryHistory } from '../lib/api';
 import { getToken, clearToken } from '../lib/auth';
 import { withScheme } from '../lib/url';
+import { warmUpServices } from '../lib/warmup';
 import DeviceCard from '../components/DeviceCard';
 import AlertList from '../components/AlertList';
 // recharts is by far the heaviest dependency here and is only needed once a
@@ -58,6 +59,11 @@ export default function Dashboard() {
       navigate('/login');
       return;
     }
+
+    // Also warmed here, not only on the login page: arriving with a saved
+    // session skips login entirely, and the devices and alerts calls would then
+    // be the first thing to hit four sleeping services.
+    warmUpServices();
 
     getDevices().then(setDevices).catch(() => setError('Could not load devices'));
     getAlerts().then(setAlerts).catch(() => setError('Could not load alerts'));
