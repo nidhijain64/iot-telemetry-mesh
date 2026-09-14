@@ -24,10 +24,6 @@ system runs on genuine data rather than only simulated numbers.
 
 ![Sound level chart with peaks](docs/screenshots/chart-sound.png)
 
-**Movement**, from the accelerometer. The large spike is a deliberate shake, which raises a `motion-shake` alert.
-
-![Motion chart showing a shake spike](docs/screenshots/chart-motion.png)
-
 **Battery drain**, reported by the browser. Available on Android; Safari does not implement the Battery Status API, so iPhones report every other metric but not this one.
 
 ![Battery level chart](docs/screenshots/chart-battery.png)
