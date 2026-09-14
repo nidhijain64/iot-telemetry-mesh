@@ -118,16 +118,21 @@ export default function TelemetryChart({ readings, metric, onMetricChange }) {
     <div className="space-y-3">
       <MetricButtons available={available} active={active} onMetricChange={onMetricChange} />
 
+      <p className="text-xs text-slate-400">{active.label} in {active.unit.trim()}</p>
+
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: -8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} minTickGap={32} />
+            {/* No unit on the ticks: appending one pushed longer values past the
+                axis width and clipped their leading digit, so "1.35 m/s²"
+                rendered as "35 m/s²" and the scale read as unordered. The unit
+                belongs in the heading and the tooltip, where it has room. */}
             <YAxis
               tick={{ fontSize: 11, fill: '#64748b' }}
               domain={['auto', 'auto']}
-              unit={active.unit}
-              width={56}
+              width={52}
             />
             <Tooltip
               formatter={(value) => [`${value}${active.unit}`, active.label]}

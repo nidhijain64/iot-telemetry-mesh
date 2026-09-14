@@ -10,6 +10,34 @@ system runs on genuine data rather than only simulated numbers.
 
 ---
 
+## Screenshots
+
+**The fleet view.** Every device an operator owns, with live readings, plus the alert feed. An admin sees every user's devices; an operator sees only their own.
+
+![Fleet dashboard showing device cards and recent alerts](docs/screenshots/dashboard.png)
+
+**Location history.** GPS fixes from a phone's browser, drawn as a route. The filled marker is the most recent position.
+
+![Map showing a device's GPS track](docs/screenshots/map.png)
+
+**Ambient sound**, measured from the phone microphone. The peaks are what the rolling z-score detector fires on — it compares each reading against that device's own recent baseline rather than a fixed threshold, so a normally-noisy location doesn't alert constantly.
+
+![Sound level chart with peaks](docs/screenshots/chart-sound.png)
+
+**Movement**, from the accelerometer. The large spike is a deliberate shake, which raises a `motion-shake` alert.
+
+![Motion chart showing a shake spike](docs/screenshots/chart-motion.png)
+
+**Battery drain**, reported by the browser. Available on Android; Safari does not implement the Battery Status API, so iPhones report every other metric but not this one.
+
+![Battery level chart](docs/screenshots/chart-battery.png)
+
+**Sign-in**, with a demo account so the deployed instance can be explored without registering.
+
+![Login page with demo sign-in](docs/screenshots/login.png)
+
+---
+
 ## Architecture
 
 ```mermaid
