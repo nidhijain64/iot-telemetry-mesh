@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const Groq = require('groq-sdk');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const connectDB = require('./config/db');
 const { serviceUrl, originList } = require('./config/serviceUrl');
 const { verifyToken } = require('./middleware/verifyToken');
@@ -72,7 +73,15 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: 'internal server error' });
 });
 
-const groq = new Groq();
+// groq-sdk uses node-fetch, which — like Node's built-in fetch — ignores
+// HTTP_PROXY and HTTPS_PROXY, unlike curl. On a network that requires a proxy
+// the SDK times out with a bare "Connection error" and no hint that a proxy was
+// the cause. Passing an explicit agent makes it behave like every other HTTP
+// client on the machine; with no proxy set, the client is constructed as normal.
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+if (proxyUrl) console.log(`[boot] routing model calls through proxy ${proxyUrl}`);
+
+const groq = new Groq(proxyUrl ? { httpAgent: new HttpsProxyAgent(proxyUrl) } : {});
 
 async function pollOnce() {
   let alerts;
