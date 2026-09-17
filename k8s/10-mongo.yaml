@@ -1,0 +1,65 @@
+# MongoDB for local cluster runs. A real deployment would point MONGO_URI at a
+# managed database instead and skip this file entirely — running your own
+# database in-cluster means owning backups, upgrades and failover.
+#
+# A PersistentVolumeClaim rather than plain Pod storage: a Pod's filesystem dies
+# with the Pod, so without this every restart would wipe the data.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-data
+  namespace: telemetry
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo
+  namespace: telemetry
+spec:
+  # Exactly one: two replicas would mount the same volume and corrupt it.
+  # Real high-availability MongoDB is a replica set, which is a StatefulSet.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: mongo }
+  template:
+    metadata:
+      labels: { app: mongo }
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mongo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: telemetry
+spec:
+  selector: { app: mongo }
+  ports:
+    - port: 27017
+      targetPort: 27017

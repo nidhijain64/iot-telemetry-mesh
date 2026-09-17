@@ -1,0 +1,38 @@
+# One hostname in front of the cluster. Without this each Service would need its
+# own port-forward or NodePort, and the dashboard would have to know several
+# addresses instead of one.
+#
+# Enable the controller first: minikube addons enable ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: telemetry
+  namespace: telemetry
+  annotations:
+    # MQTT here is carried over WebSockets, which begins as an HTTP request
+    # asking to upgrade. The default proxy timeout would close those
+    # long-lived connections after 60s, so a dashboard would silently stop
+    # receiving telemetry roughly once a minute.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: telemetry.local
+      http:
+        paths:
+          # data-ingestion is addressed directly rather than through the
+          # gateway: the gateway proxies HTTP, and a WebSocket upgrade does not
+          # survive that hop.
+          - path: /mqtt
+            pathType: Prefix
+            backend:
+              service:
+                name: data-ingestion-service
+                port: { number: 3003 }
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port: { number: 3005 }

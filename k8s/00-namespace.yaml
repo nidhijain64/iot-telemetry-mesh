@@ -1,0 +1,6 @@
+# Everything lives in one namespace, so the whole stack can be inspected — or
+# torn down — as a unit: `kubectl delete namespace telemetry` removes all of it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: telemetry

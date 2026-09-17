@@ -1,0 +1,70 @@
+# device-registry-service — device records, credentials, liveness.
+#
+# Two replicas. The stale-device sweep runs on a timer in every replica, so
+# it executes twice per interval — harmless, because it is a single
+# idempotent updateMany. A leader election or a CronJob would make it run
+# once, which matters only at a scale where the extra write is measurable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-registry-service
+  namespace: telemetry
+spec:
+
+  replicas: 2
+  selector:
+    matchLabels: { app: device-registry-service }
+  template:
+    metadata:
+      labels: { app: device-registry-service }
+    spec:
+      containers:
+        - name: device-registry-service
+          image: iot-telemetry-mesh-device-registry-service:latest
+          # Never, not IfNotPresent: these images exist only inside the
+          # cluster, loaded with `minikube image load`. IfNotPresent still lets
+          # kubelet fall back to a registry pull when it cannot find one, and
+          # that attempt hangs for minutes against Docker Hub before failing.
+          # Never turns a missing image into an immediate, obvious error.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3002
+          env:
+            - name: PORT
+              value: "3002"
+          envFrom:
+            - configMapRef: { name: telemetry-config }
+            - secretRef: { name: telemetry-secrets }
+          resources:
+            # requests decide scheduling — how much the node must reserve.
+            # limits are the hard ceiling; exceeding memory gets the container
+            # killed. No CPU limit on purpose: CPU is throttled rather than
+            # fatal, and a ceiling just adds latency under burst.
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          # Readiness gates traffic: fail and the Pod is pulled out of the
+          # Service, but nothing is restarted. This is what stops requests
+          # reaching a Pod that is still connecting to MongoDB.
+          readinessProbe:
+            httpGet: { path: /health, port: 3002 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 2
+          # Liveness restarts. Deliberately far more forgiving than readiness —
+          # restarting a Pod that is merely busy makes an overload worse.
+          livenessProbe:
+            httpGet: { path: /health, port: 3002 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-registry-service
+  namespace: telemetry
+spec:
+  selector: { app: device-registry-service }
+  ports:
+    - port: 3002
+      targetPort: 3002

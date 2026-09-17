@@ -1,0 +1,64 @@
+# Non-secret configuration, kept separate from the Secret on purpose: these
+# values are safe to read, safe to commit, and safe to leave in the output of
+# `kubectl describe`. Anything that isn't goes in telemetry-secrets instead.
+#
+# Every Deployment pulls this in wholesale with `envFrom`, so a service only
+# reads the keys it cares about and the rest are harmlessly present.
+#
+# Service URLs rely on Kubernetes DNS: each Service gets a name resolvable
+# inside the cluster, so "http://auth-service:3001" needs no hard-coded address
+# and keeps working as pods are rescheduled.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telemetry-config
+  namespace: telemetry
+data:
+  NODE_ENV: "production"
+
+  # --- service discovery ---
+  AUTH_URL: "http://auth-service:3001"
+  DEVICE_REGISTRY_URL: "http://device-registry-service:3002"
+  INGESTION_URL: "http://data-ingestion-service:3003"
+  ALERT_SERVICE_URL: "http://alert-rules-service:3004"
+  ALERT_URL: "http://alert-rules-service:3004"
+
+  # The dashboard is a static site hosted outside the cluster — set this to its
+  # origin. Left blank, every origin is allowed and each service warns at boot.
+  CORS_ORIGIN: ""
+
+  # TLS terminates at the Ingress, so the services themselves speak plain HTTP.
+  # Left set, they would look for certificate files that are not in the image.
+  SSL_KEY_PATH: ""
+  SSL_CERT_PATH: ""
+
+  # --- auth-service ---
+  JWT_EXPIRY: "1h"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_LOGIN_MAX: "10"
+  RATE_LIMIT_REGISTER_MAX: "5"
+
+  # --- device-registry-service ---
+  STALE_AFTER_MS: "120000"
+  SWEEP_INTERVAL_MS: "30000"
+
+  # --- data-ingestion-service ---
+  RING_BUFFER_SIZE: "50"
+  VIEWER_SCOPE_REFRESH_MS: "30000"
+  # Must stay well below STALE_AFTER_MS, or a device is swept offline in the gap
+  # between two liveness reports while it is publishing perfectly happily.
+  LIVENESS_THROTTLE_MS: "30000"
+
+  # --- alert-rules-service ---
+  TEMP_THRESHOLD_C: "35"
+  BATTERY_THRESHOLD_PCT: "20"
+  ALERT_COOLDOWN_MS: "300000"
+  MOTION_SHAKE_THRESHOLD: "25"
+  SOUND_BASELINE_WINDOW: "20"
+  SOUND_Z_SCORE_THRESHOLD: "2.5"
+  ALERT_WEBHOOK_URL: ""
+
+  # --- api-gateway ---
+  # Upstreams are in-cluster and always warm, so this matters far less here than
+  # on a platform that suspends idle services. Kept generous anyway.
+  UPSTREAM_TIMEOUT_MS: "90000"

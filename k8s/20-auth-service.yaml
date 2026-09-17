@@ -1,0 +1,70 @@
+# auth-service — users, password hashing, token issuing.
+#
+# Two replicas, with one caveat worth knowing: the login rate limiter keeps
+# its counters in process memory, so each replica counts independently and
+# the effective limit is per-replica rather than global. Acceptable here;
+# a shared store (Redis) is what makes it exact.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: telemetry
+spec:
+
+  replicas: 2
+  selector:
+    matchLabels: { app: auth-service }
+  template:
+    metadata:
+      labels: { app: auth-service }
+    spec:
+      containers:
+        - name: auth-service
+          image: iot-telemetry-mesh-auth-service:latest
+          # Never, not IfNotPresent: these images exist only inside the
+          # cluster, loaded with `minikube image load`. IfNotPresent still lets
+          # kubelet fall back to a registry pull when it cannot find one, and
+          # that attempt hangs for minutes against Docker Hub before failing.
+          # Never turns a missing image into an immediate, obvious error.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3001
+          env:
+            - name: PORT
+              value: "3001"
+          envFrom:
+            - configMapRef: { name: telemetry-config }
+            - secretRef: { name: telemetry-secrets }
+          resources:
+            # requests decide scheduling — how much the node must reserve.
+            # limits are the hard ceiling; exceeding memory gets the container
+            # killed. No CPU limit on purpose: CPU is throttled rather than
+            # fatal, and a ceiling just adds latency under burst.
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          # Readiness gates traffic: fail and the Pod is pulled out of the
+          # Service, but nothing is restarted. This is what stops requests
+          # reaching a Pod that is still connecting to MongoDB.
+          readinessProbe:
+            httpGet: { path: /health, port: 3001 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 2
+          # Liveness restarts. Deliberately far more forgiving than readiness —
+          # restarting a Pod that is merely busy makes an overload worse.
+          livenessProbe:
+            httpGet: { path: /health, port: 3001 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: telemetry
+spec:
+  selector: { app: auth-service }
+  ports:
+    - port: 3001
+      targetPort: 3001
