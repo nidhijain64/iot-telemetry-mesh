@@ -1,7 +1,7 @@
 # ============================================================
 # Local orchestration check before deploying. Each service still
 # uses MongoDB Atlas (via its own .env MONGO_URI) — this compose
-# file isn't running a local database, just proving the 5
+# file isn't running a local database, just proving the 6
 # containers build and talk to each other correctly.
 #
 # Two things deliberately overridden here vs. each service's own
@@ -74,6 +74,21 @@ services:
     networks:
       - iot-mesh
 
+  insight-agent:
+    build: ./services/insight-agent
+    env_file:
+      - ./services/insight-agent/.env
+    environment:
+      - SSL_KEY_PATH=
+      - SSL_CERT_PATH=
+      - DEVICE_REGISTRY_URL=http://device-registry-service:3002
+      - ALERT_SERVICE_URL=http://alert-rules-service:3004
+    depends_on:
+      - device-registry-service
+      - alert-rules-service
+    networks:
+      - iot-mesh
+
   api-gateway:
     build: ./services/api-gateway
     ports:
@@ -87,11 +102,13 @@ services:
       - DEVICE_REGISTRY_URL=http://device-registry-service:3002
       - INGESTION_URL=http://data-ingestion-service:3003
       - ALERT_URL=http://alert-rules-service:3004
+      - INSIGHT_URL=http://insight-agent:3006
     depends_on:
       - auth-service
       - device-registry-service
       - data-ingestion-service
       - alert-rules-service
+      - insight-agent
     networks:
       - iot-mesh
 

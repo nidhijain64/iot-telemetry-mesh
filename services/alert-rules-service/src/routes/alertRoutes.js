@@ -28,6 +28,35 @@ router.post('/check', async (req, res) => {
   }
 });
 
+// INTERNAL ONLY — the insight agent reads raw alerts across every device, so it
+// cannot use the scoped human endpoint below. Gated by the shared service key,
+// same as /check: there is no logged-in human in this call, and handing unscoped
+// alerts to a user token would break the tenant boundary the scoped endpoint
+// exists to enforce.
+router.get('/internal/recent', async (req, res) => {
+  const serviceKey = req.headers['x-service-key'];
+  if (!serviceKey || serviceKey !== process.env.INTERNAL_SERVICE_KEY) {
+    return res.status(401).json({ error: 'invalid or missing service key' });
+  }
+  try {
+    const filter = {};
+    if (req.query.since) {
+      const since = new Date(req.query.since);
+      if (Number.isNaN(since.getTime())) {
+        return res.status(400).json({ error: 'since must be an ISO-8601 date' });
+      }
+      filter.createdAt = { $gte: since };
+    }
+    // Oldest first: the agent reads a cluster as a sequence, and sorting once
+    // here saves every caller doing it.
+    const alerts = await Alert.find(filter).sort({ createdAt: 1 }).limit(500).lean();
+    return res.json(alerts);
+  } catch (err) {
+    console.error('[alerts/internal/recent]', err.message);
+    return res.status(500).json({ error: 'internal error' });
+  }
+});
+
 // Human/dashboard-facing — recent alert history. Alert has no owner field
 // of its own, so scoping reuses device-registry's already-scoped device
 // list: forward the caller's own JWT there, get back only the devices

@@ -16,6 +16,7 @@ const AUTH_URL = serviceUrl(process.env.AUTH_URL, 'http://localhost:3001');
 const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
 const INGESTION_URL = serviceUrl(process.env.INGESTION_URL, 'http://localhost:3003');
 const ALERT_URL = serviceUrl(process.env.ALERT_URL, 'http://localhost:3004');
+const INSIGHT_URL = serviceUrl(process.env.INSIGHT_URL, 'http://localhost:3006');
 
 // Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
 // Left unset it reflects any origin, which is fine on localhost but means any
@@ -42,7 +43,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway'
 // These are public Render hostnames and every route behind them still requires
 // a token; listing them exposes nothing that isn't already reachable.
 app.get('/upstreams', (req, res) => {
-  res.json({ services: [AUTH_URL, DEVICE_REGISTRY_URL, INGESTION_URL, ALERT_URL] });
+  res.json({ services: [AUTH_URL, DEVICE_REGISTRY_URL, INGESTION_URL, ALERT_URL, INSIGHT_URL] });
 });
 
 // On a free hosting plan an idle service is suspended and takes ~30-60s to come
@@ -133,6 +134,7 @@ app.use('/api/auth', upstream(AUTH_URL, '/api/auth'));
 app.use('/api/devices', upstream(DEVICE_REGISTRY_URL, '/api/devices'));
 app.use('/api/telemetry', upstream(INGESTION_URL, '/api/telemetry'));
 app.use('/api/alerts', upstream(ALERT_URL, '/api/alerts'));
+app.use('/api/insights', upstream(INSIGHT_URL, '/api/insights'));
 
 app.use((req, res) => res.status(404).json({ error: 'route not found' }));
 
