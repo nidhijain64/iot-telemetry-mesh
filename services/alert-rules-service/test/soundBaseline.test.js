@@ -48,3 +48,26 @@ test('baseline follows a sustained shift instead of alerting forever', () => {
   for (let i = 0; i < 25; i++) checkSoundAnomaly('sound-7', 95 + (i % 3));
   assert.strictEqual(checkSoundAnomaly('sound-7', 96), null, 'new normal is no longer an anomaly');
 });
+
+test('a near-silent baseline cannot produce an absurd z-score', () => {
+  // A device in a steady room reports almost identical values, so the real
+  // standard deviation approaches zero. Without a floor, dividing by it made an
+  // ordinary jump read as hundreds of standard deviations.
+  for (let i = 0; i < 8; i++) checkSoundAnomaly('sound-floor', 55);
+  const anomaly = checkSoundAnomaly('sound-floor', 72);
+  assert.ok(anomaly, 'a 17dB jump should still fire');
+  assert.ok(anomaly.zScore < 30, `z-score should stay believable, got ${anomaly.zScore}`);
+  assert.ok(anomaly.stdDev >= 1.5, 'standard deviation should be floored');
+});
+
+test('the floor does not suppress a genuine spike in a quiet room', () => {
+  for (let i = 0; i < 8; i++) checkSoundAnomaly('sound-quiet', 40);
+  assert.ok(checkSoundAnomaly('sound-quiet', 85), 'a loud event in a quiet room must still alert');
+});
+
+test('a device with real variation is unaffected by the floor', () => {
+  // Spread well above the floor, so the measured deviation is used as-is.
+  for (const v of [50, 62, 45, 58, 67, 44, 55, 61]) checkSoundAnomaly('sound-varied', v);
+  const anomaly = checkSoundAnomaly('sound-varied', 56);
+  assert.strictEqual(anomaly, null, 'a mid-range reading should not fire');
+});
