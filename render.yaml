@@ -1,5 +1,5 @@
 # ============================================================
-# Render Blueprint — deploys the four services, the gateway, and the
+# Render Blueprint — deploys the five services, the gateway, and the
 # dashboard. Create it from the Render dashboard with
 # "New +" -> "Blueprint", pointed at this repo.
 #
@@ -147,6 +147,52 @@ services:
       - key: NODE_ENV
         value: production
 
+  # ---------- insight-agent ----------
+  # Polls alert-rules for clusters of related alerts and asks a model to
+  # explain them. Deliberately off the ingestion path: if this is asleep,
+  # rate-limited or failing, alerts still fire and the dashboard still works.
+  # The insights panel is simply empty, which is also its normal state.
+  - type: web
+    name: insight-agent
+    runtime: node
+    plan: free
+    rootDir: services/insight-agent
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: INTERNAL_SERVICE_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DEVICE_REGISTRY_URL
+        sync: false
+      - key: ALERT_SERVICE_URL
+        sync: false
+      # Groq key. sync: false so it is set in the dashboard and never lands
+      # in git — a key committed to a public repo is revoked automatically.
+      - key: GROQ_API_KEY
+        sync: false
+      # Only the gpt-oss and qwen families enforce a JSON schema on Groq.
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      # A free instance sleeps after 15 min idle, so in practice the agent
+      # wakes, polls once and sleeps again. Acceptable for a background
+      # triage pass; it is not in any request path.
+      - key: INSIGHT_POLL_INTERVAL_MS
+        value: "60000"
+      - key: INSIGHT_WINDOW_MS
+        value: "900000"
+      - key: INSIGHT_MIN_ALERTS
+        value: "3"
+      - key: INSIGHT_COOLDOWN_MS
+        value: "1800000"
+      - key: NODE_ENV
+        value: production
+
   # ---------- api-gateway ----------
   - type: web
     name: api-gateway
@@ -163,6 +209,8 @@ services:
       - key: INGESTION_URL
         sync: false
       - key: ALERT_URL
+        sync: false
+      - key: INSIGHT_URL
         sync: false
       - key: CORS_ORIGIN
         sync: false

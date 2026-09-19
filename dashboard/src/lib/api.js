@@ -84,3 +84,12 @@ export async function getTelemetryHistory(deviceId, limit = 200) {
   const res = await client.get(`/api/telemetry/${deviceId}/history`, { params: { limit } });
   return res.data;
 }
+
+// Insights are written by the insight-agent, which triages clustered alerts.
+// An empty list is the normal state: the agent only writes when several alerts
+// for one device land inside its window, so most of the time there is nothing
+// to show and the panel stays hidden.
+export async function getInsights() {
+  const res = await client.get('/api/insights');
+  return res.data;
+}

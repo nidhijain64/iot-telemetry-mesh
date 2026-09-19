@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import mqtt from 'mqtt';
-import { getDevices, getAlerts, getTelemetryHistory } from '../lib/api';
+import { getDevices, getAlerts, getTelemetryHistory, getInsights } from '../lib/api';
 import { getToken, clearToken } from '../lib/auth';
 import { withScheme } from '../lib/url';
 import { warmUpServices } from '../lib/warmup';
 import DeviceCard from '../components/DeviceCard';
 import AlertList from '../components/AlertList';
+import InsightList from '../components/InsightList';
 // recharts is by far the heaviest dependency here and is only needed once a
 // device is selected, so it loads as its own chunk instead of being paid for
 // on every first page load.
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const [devices, setDevices] = useState([]);
   const [readings, setReadings] = useState({});
   const [alerts, setAlerts] = useState([]);
+  const [insights, setInsights] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   // History is keyed by the device it belongs to, so selecting a different
   // device renders empty rather than briefly charting the previous device's
@@ -67,12 +69,17 @@ export default function Dashboard() {
 
     getDevices().then(setDevices).catch(() => setError('Could not load devices'));
     getAlerts().then(setAlerts).catch(() => setError('Could not load alerts'));
+    // Deliberately not surfaced as an error: the agent is optional, and a
+    // dashboard that works must not show a failure banner because a
+    // non-essential service is down.
+    getInsights().then(setInsights).catch(() => {});
     // Both are polled: isOnline and lastSeenAt are decided server-side (by the
     // liveness reports and the stale sweep), so without re-fetching, a device
     // that goes quiet keeps rendering as "online" for as long as the tab is open.
     const poll = setInterval(() => {
       getDevices().then(setDevices).catch(() => {});
       getAlerts().then(setAlerts).catch(() => {});
+      getInsights().then(setInsights).catch(() => {});
     }, 10000);
 
     // Connect as a VIEWER — username "dashboard", password = the same
@@ -236,6 +243,16 @@ export default function Dashboard() {
           <Suspense fallback={<p className="text-sm text-slate-400">Loading chart…</p>}>
             <TelemetryChart readings={historyRows} metric={metric} onMetricChange={setMetric} />
           </Suspense>
+        </section>
+      )}
+
+      {insights.length > 0 && (
+        <section>
+          <h2 className="text-sm font-medium text-slate-500 mb-2">
+            Agent insights{' '}
+            <span className="text-slate-400 font-normal">· generated from clustered alerts</span>
+          </h2>
+          <InsightList insights={insights} />
         </section>
       )}
 
