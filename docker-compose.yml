@@ -1,8 +1,13 @@
 # ============================================================
 # Local orchestration check before deploying. Each service still
 # uses MongoDB Atlas (via its own .env MONGO_URI) — this compose
-# file isn't running a local database, just proving the 6
+# file isn't running a local database, just proving the 7
 # containers build and talk to each other correctly.
+#
+# Redis IS run locally, unlike Mongo: it holds no durable data, so
+# there is nothing to point at a hosted instance for. It is what
+# lets data-ingestion-service and alert-rules-service run with more
+# than one replica under Kubernetes (see k8s/README.md).
 #
 # Two things deliberately overridden here vs. each service's own
 # .env file:
@@ -21,6 +26,25 @@
 # ============================================================
 
 services:
+  # Shared state for the things that are otherwise per-process: the MQTT
+  # emitter and session store, the recent-telemetry ring buffer, the alert
+  # debounce cooldown, the rolling sound baseline, and the login rate-limit
+  # counters. No volume on purpose — every one of those is a cache or a
+  # short-lived coordination key, and the durable record is in MongoDB.
+  redis:
+    image: redis:7-alpine
+    # Cap the memory and evict rather than refuse writes if it is ever hit:
+    # losing an old baseline window degrades detection, a write error would
+    # break ingestion outright.
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - iot-mesh
+
   auth-service:
     build: ./services/auth-service
     env_file:
@@ -28,6 +52,11 @@ services:
     environment:
       - SSL_KEY_PATH=
       - SSL_CERT_PATH=
+      # Makes the login limit global instead of per-replica.
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - iot-mesh
 
@@ -55,9 +84,15 @@ services:
       - SSL_CERT_PATH=
       - DEVICE_REGISTRY_URL=http://device-registry-service:3002
       - ALERT_SERVICE_URL=http://alert-rules-service:3004
+      # Shared broker emitter + ring buffer, so replicas see each other's devices.
+      - REDIS_URL=redis://redis:6379
     depends_on:
-      - device-registry-service
-      - alert-rules-service
+      device-registry-service:
+        condition: service_started
+      alert-rules-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - iot-mesh
 
@@ -69,8 +104,13 @@ services:
       - SSL_KEY_PATH=
       - SSL_CERT_PATH=
       - DEVICE_REGISTRY_URL=http://device-registry-service:3002
+      # Shared debounce cooldown + sound baseline, so replicas don't duplicate alerts.
+      - REDIS_URL=redis://redis:6379
     depends_on:
-      - device-registry-service
+      device-registry-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - iot-mesh
 

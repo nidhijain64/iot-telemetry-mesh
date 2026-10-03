@@ -8,6 +8,8 @@
 
 const aedesExports = require('aedes');
 const Aedes = aedesExports.Aedes || aedesExports.default || aedesExports;
+const mqemitterRedis = require('mqemitter-redis');
+const aedesPersistenceRedis = require('aedes-persistence-redis');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const ringBuffer = require('./ringBuffer');
@@ -15,6 +17,7 @@ const Reading = require('./models/Reading');
 const { reportSeen } = require('./liveness');
 
 const { serviceUrl } = require('./config/serviceUrl');
+const redis = require('./config/redis');
 
 const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
 const ALERT_SERVICE_URL = serviceUrl(process.env.ALERT_SERVICE_URL, 'http://localhost:3004');
@@ -39,8 +42,27 @@ async function fetchVisibleDeviceIds(token) {
   return new Set(data.map((d) => d.deviceId));
 }
 
+// Aedes keeps its subscription emitter and its session/retained store in memory
+// by default, and both are per-process. That is the reason this Deployment ran a
+// single replica: a device connecting to replica A publishes into A's emitter
+// only, so a dashboard holding its socket on replica B never sees that device at
+// all — no error, just a device that silently isn't there.
+//
+// Pointing both at Redis makes the brokers one logical broker.
+function brokerOptions() {
+  if (!redis.isEnabled()) return {};
+
+  return {
+    // mqemitter-redis takes the URL as-is; it opens its own pub and sub
+    // connections, because a connection in subscriber mode cannot also publish.
+    mq: mqemitterRedis({ connectionString: process.env.REDIS_URL }),
+    // The Aedes persistence package wants ioredis options rather than a URL.
+    persistence: aedesPersistenceRedis(redis.connectionOptions()),
+  };
+}
+
 async function createBroker() {
-  const aedes = await Aedes.createBroker();
+  const aedes = await Aedes.createBroker(brokerOptions());
 
   aedes.authenticate = async (client, username, password, callback) => {
     if (!username || !password) {
@@ -128,15 +150,7 @@ async function createBroker() {
     return callback(new Error('devices are not authorized to subscribe'));
   };
 
-  // The actual tenant boundary for live telemetry. authorizeSubscribe can't be
-  // it: the dashboard subscribes to the wildcard `telemetry/#`, which is one
-  // subscription covering devices that come and go, so there is nothing
-  // per-device to allow or deny at subscribe time. This hook runs per delivered
-  // message instead, which is the only point where the specific device is known.
-  //
-  // Without it, every logged-in user's browser received every other user's
-  // telemetry over the socket — the REST scoping said otherwise, but the live
-  // stream simply ignored it.
+  
   aedes.authorizeForward = (client, packet) => {
     if (!client || !client.isViewer) return packet;
     if (!packet.topic || !packet.topic.startsWith(TELEMETRY_PREFIX)) return null;
@@ -149,6 +163,11 @@ async function createBroker() {
   };
 
   aedes.on('publish', async (packet, client) => {
+    // This guard is load-bearing once the emitter is shared. Every replica sees
+    // every message on the Redis channel, but `client` is set only on the replica
+    // the publisher is actually connected to — so the persist-and-check work below
+    // runs exactly once per reading instead of once per replica. Without it,
+    // scaling out would multiply Mongo writes and alert checks by the replica count.
     if (!client) return;
     if (!packet.topic.startsWith(TELEMETRY_PREFIX)) return;
 
@@ -161,7 +180,11 @@ async function createBroker() {
     }
 
     const entry = { ...reading, deviceId: client.deviceId, receivedAt: new Date().toISOString() };
-    ringBuffer.push(client.deviceId, entry);
+    // Awaited, unlike the two fire-and-forget calls below: the ring buffer backs
+    // the dashboard's live chart, so letting the alert call overtake it would
+    // surface an alert for a reading the chart has not drawn yet. push() handles
+    // its own Redis failures and never rejects, so this adds latency, not risk.
+    await ringBuffer.push(client.deviceId, entry);
 
     // Marks the device alive in the registry. Fire-and-forget and throttled
     // internally — liveness bookkeeping must never delay or drop a reading.

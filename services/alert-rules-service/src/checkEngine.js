@@ -30,7 +30,7 @@ async function checkReading(reading) {
   }
 
   if (typeof reading.soundLevel === 'number') {
-    const anomaly = checkSoundAnomaly(deviceId, reading.soundLevel);
+    const anomaly = await checkSoundAnomaly(deviceId, reading.soundLevel);
     if (anomaly) {
       candidates.push({
         type: 'sound-anomaly',
@@ -53,7 +53,7 @@ async function checkReading(reading) {
 
   const fired = [];
   for (const candidate of candidates) {
-    if (!shouldFire(deviceId, candidate.type)) continue; // debounced — skip
+    if (!(await shouldFire(deviceId, candidate.type))) continue; // debounced — skip
 
     const saved = await Alert.create({ deviceId, ...candidate });
     fired.push(saved);

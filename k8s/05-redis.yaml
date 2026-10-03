@@ -1,0 +1,76 @@
+# Redis — shared state for everything that would otherwise be per-process.
+#
+# This is the file that makes the replica counts elsewhere in this directory
+# possible. Five separate pieces of state used to live in one process's memory:
+#
+#   data-ingestion-service  the Aedes MQTT emitter and session store
+#                           the recent-telemetry ring buffer
+#   alert-rules-service     the alert debounce cooldown
+#                           the rolling sound baseline
+#   auth-service            the login rate-limit counters
+#
+# No PersistentVolumeClaim, deliberately, and the contrast with 10-mongo.yaml is
+# the point: every key here is a cache or a short-lived coordination lock. Losing
+# the lot costs a cold baseline and an empty live chart for a few seconds. The
+# durable record — readings and alerts — is in MongoDB and is unaffected.
+# Giving this a volume would mean owning backups for data we are happy to lose.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: telemetry
+spec:
+  # One replica, same as mongo, and for a related reason: the services treat this
+  # as a single source of truth for the debounce lock. Redis HA is Sentinel or
+  # Cluster, which is a StatefulSet and a different exercise.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # Evict the oldest keys rather than start refusing writes if the cap is
+          # ever reached. A rejected write would surface as a failed ingestion;
+          # an evicted baseline window just rebuilds itself over the next few
+          # readings, which is the far cheaper failure.
+          args:
+            - redis-server
+            - --maxmemory
+            - 256mb
+            - --maxmemory-policy
+            - allkeys-lru
+            # No appendonly/save: nothing here is worth persisting (see above).
+            - --save
+            - ""
+          ports:
+            - containerPort: 6379
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 320Mi } # headroom over maxmemory for overhead
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: telemetry
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+      targetPort: 6379

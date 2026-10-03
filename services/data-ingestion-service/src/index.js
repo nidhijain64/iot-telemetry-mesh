@@ -72,11 +72,13 @@ async function assertDeviceVisible(req, res) {
   }
 }
 
-// Live view — in-memory only, so this is empty after a restart. That's the
-// tradeoff the ring buffer exists for; /history below is the durable answer.
+// Live view — deliberately not durable, so this is empty (or thin) after a
+// restart. With REDIS_URL set it is shared across replicas and survives a pod
+// restart for as long as the TTL, but it is still a cache: /history below is
+// the durable answer.
 app.get('/api/telemetry/:deviceId/recent', verifyToken, async (req, res) => {
   if (!(await assertDeviceVisible(req, res))) return;
-  res.json(ringBuffer.getRecent(req.params.deviceId));
+  res.json(await ringBuffer.getRecent(req.params.deviceId));
 });
 
 // Durable history, straight out of MongoDB. Every reading that passed broker

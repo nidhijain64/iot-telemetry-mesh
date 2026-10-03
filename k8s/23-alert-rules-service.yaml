@@ -1,9 +1,18 @@
 # alert-rules-service — thresholds, z-score detection, debouncing.
 #
-# One replica, for the same class of reason as ingestion: the debounce
-# cooldown and the rolling sound baseline are per-process. Two replicas
-# would each keep their own cooldown, so a single sustained problem could
-# raise duplicate alerts — exactly what the debounce exists to prevent.
+# Two replicas, which required fixing the thing that previously made that
+# unsafe. The debounce cooldown and the rolling sound baseline were both
+# per-process, so each replica kept its own cooldown and a single sustained
+# problem could raise one duplicate alert per replica — exactly what the
+# debounce exists to prevent.
+#
+# Both now live in the Redis from 05-redis.yaml. The debounce is the part that
+# actually matters: it is a single `SET key NX PX`, so when both replicas
+# evaluate the same reading at the same instant, exactly one creates the key and
+# exactly one alert is written. The shared baseline is what makes the two
+# replicas agree on what "normal" is for a device in the first place, rather
+# than each building a baseline from whatever subset of traffic it happened to
+# receive.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,7 +20,7 @@ metadata:
   namespace: telemetry
 spec:
 
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels: { app: alert-rules-service }
   template:

@@ -1,18 +1,15 @@
 # auth-service — users, password hashing, token issuing.
 #
-# Two replicas, with one caveat worth knowing: the login rate limiter keeps
-# its counters in process memory, so each replica counts independently and
-# the effective limit is per-replica rather than global. Acceptable here;
-# a shared store (Redis) is what makes it exact.
+
 apiVersion: apps/v1
-kind: Deployment
+kind: Deployment #keeps a set number of copies runnign
 metadata:
   name: auth-service
   namespace: telemetry
 spec:
 
   replicas: 2
-  selector:
+  selector: # these labels are how the service finds these pods later
     matchLabels: { app: auth-service }
   template:
     metadata:
@@ -20,12 +17,7 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: iot-telemetry-mesh-auth-service:latest
-          # Never, not IfNotPresent: these images exist only inside the
-          # cluster, loaded with `minikube image load`. IfNotPresent still lets
-          # kubelet fall back to a registry pull when it cannot find one, and
-          # that attempt hangs for minutes against Docker Hub before failing.
-          # Never turns a missing image into an immediate, obvious error.
+          image: iot-telemetry-mesh-auth-service:latest # the docker image it runs
           imagePullPolicy: Never
           ports:
             - containerPort: 3001

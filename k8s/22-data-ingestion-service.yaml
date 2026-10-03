@@ -1,17 +1,28 @@
 # data-ingestion-service — REST API plus the embedded MQTT broker.
 #
-# ONE REPLICA, AND THIS IS THE IMPORTANT ONE.
+# TWO REPLICAS, AND THIS IS THE ONE THAT HAD TO EARN IT.
 #
-# The broker holds state in process memory: the ring buffer of recent
-# readings, and the set of devices each connected dashboard is allowed to
-# see. With two replicas a device can connect to one while a dashboard
-# connects to the other, and that dashboard never receives its telemetry —
-# silently, with no error anywhere.
+# This ran at one replica for a long time, because the broker kept its state in
+# process memory: the Aedes subscription emitter, the session store, and the
+# ring buffer of recent readings. With two replicas a device could connect to
+# one while a dashboard connected to the other, and that dashboard would never
+# receive its telemetry — silently, with no error anywhere to explain it.
 #
-# Scaling this needs a shared backplane (mqemitter-mongodb and
-# aedes-persistence-mongodb) so every replica sees every message. Until
-# that exists, replicas stays at 1 and Recreate avoids two brokers
-# briefly running side by side during a rollout.
+# The backplane that fixes it is now in place: mqemitter-redis and
+# aedes-persistence-redis point the emitter and session store at the Redis in
+# 05-redis.yaml, and the ring buffer moved into a Redis list, so GET /recent
+# returns the same history whichever replica answers it. The brokers are one
+# logical broker, and a device connected to either is visible to a dashboard on
+# either.
+#
+# RollingUpdate rather than Recreate, now that two brokers running side by side
+# during a rollout is the normal state rather than the hazard it used to be —
+# so a deploy no longer drops every device connection at once.
+#
+# What still has to hold for this to be correct: broker.js only persists a
+# reading when `client` is set, which is true exclusively on the replica the
+# publisher is connected to. Remove that guard and every reading would be
+# written, and alert-checked, once per replica.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,8 +30,8 @@ metadata:
   namespace: telemetry
 spec:
   strategy:
-    type: Recreate
-  replicas: 1
+    type: RollingUpdate
+  replicas: 2
   selector:
     matchLabels: { app: data-ingestion-service }
   template:

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 // Permanent history of every telemetry message that passed broker auth.
-// The ring buffer (ringBuffer.js) stays as the fast in-memory path for the
+// The ring buffer (ringBuffer.js) stays as the fast, non-durable path for the
 // dashboard's "live" view — this is the durable record behind it.
 const readingSchema = new mongoose.Schema(
   {

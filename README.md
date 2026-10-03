@@ -53,6 +53,7 @@ flowchart TB
     ALERT["alert-rules-service :3004<br/>thresholds · z-score · debounce"]
 
     DB[("MongoDB")]
+    REDIS[("Redis<br/>broker backplane · debounce · baselines")]
     HOOK["Slack webhook"]
 
     SIM -- "MQTT/WS publish" --> ING
@@ -74,13 +75,17 @@ flowchart TB
     REG --- DB
     ING --- DB
     ALERT --- DB
+
+    AUTH -. "rate-limit counters" .- REDIS
+    ING -. "MQTT emitter · sessions · ring buffer" .- REDIS
+    ALERT -. "debounce · sound baselines" .- REDIS
 ```
 
 **Data path for one reading:** device publishes to `telemetry/<deviceId>` → broker
-authenticates the device and rejects any topic but its own → reading lands in an in-memory
-ring buffer (live view) *and* is written to MongoDB (durable history) → forwarded to the
-alert engine → the dashboard receives it over its own subscription, filtered to devices
-that viewer owns.
+authenticates the device and rejects any topic but its own → reading lands in the recent
+ring buffer (live view, shared across replicas via Redis) *and* is written to MongoDB
+(durable history) → forwarded to the alert engine → the dashboard receives it over its own
+subscription, filtered to devices that viewer owns.
 
 ---
 
@@ -92,9 +97,10 @@ that viewer owns.
 | Backend | Node.js, Express — 5 independent services |
 | Database | MongoDB + Mongoose |
 | Messaging | MQTT over WebSockets ([aedes](https://github.com/moscajs/aedes) broker, embedded) |
+| Shared state | Redis — broker backplane, alert debounce, rolling baselines, rate-limit counters |
 | Auth | JWT (HS256) for users, bcrypt-hashed secrets for devices |
 | Gateway | http-proxy-middleware |
-| Infra | Docker + Docker Compose |
+| Infra | Docker + Docker Compose, Kubernetes manifests (`k8s/`) |
 | Tests | Node's built-in test runner (`node --test`) |
 
 ---
@@ -152,6 +158,33 @@ halves the limiter would count every user into one bucket and lock out everybody
 **Anomaly detection runs only on real data.**
 The rolling z-score detector is applied to sound levels from actual phone microphones.
 Running it over simulator output would be finding patterns in numbers that were invented.
+
+**Per-process state was the real scaling limit, not CPU.**
+Two of the five services ran at a single replica for most of this project's life, and not
+because they were slow. Five pieces of state lived in one process's memory, and each broke
+differently under a second replica: the MQTT emitter and session store (a device on replica
+A was invisible to a dashboard on replica B — silently, no error), the recent-telemetry ring
+buffer (`/recent` answered differently per replica), the alert debounce cooldown (one
+duplicate alert per replica, defeating the debounce entirely), the rolling sound baseline
+(each replica learned "normal" from a partial slice of traffic), and the login rate-limit
+counters (effective limit became `LOGIN_MAX × replicas`, which is a security regression
+rather than a cosmetic one).
+
+All five moved to Redis, and every service now runs more than one replica. The piece that
+needs a hard guarantee is the debounce, and it is the only piece that gets one: a single
+`SET key NX PX`, so two replicas evaluating the same reading at the same instant produce
+exactly one alert. The shared baseline is deliberately *not* atomic — both replicas may flag
+the same reading, and the atomic debounce collapses that to one write, so a Lua script there
+would buy nothing.
+
+**Shared state degrades instead of failing.**
+Every one of those five keeps its in-process implementation and falls back to it when
+`REDIS_URL` is unset or Redis is unreachable. That is what lets `npm test` and a single-node
+`docker compose up` run with no Redis at all, and it means a Redis outage costs exactness
+rather than availability. The fallbacks lean the same way each time: a duplicated alert beats
+a missed one, unthrottled logins beat locking every user out of their own account, and a
+dropped live-chart entry never costs a MongoDB write. `k8s/README.md` has the per-service
+breakdown.
 
 ---
 
@@ -306,13 +339,23 @@ for d in services/*/; do (cd "$d" && npm test); done
 cd dashboard && npm test
 ```
 
-57 tests. The services use Node's built-in runner (no test framework dependency); the
-dashboard uses Vitest. They cover the parts where a mistake is silent rather than loud: the
-JWT middleware (including `alg:none` rejection and role gating), login rate limiting and its
-per-IP keying, per-viewer MQTT delivery scoping, liveness reporting and its throttle, expired-session
-handling in the API client,
-ring-buffer eviction, the z-score detector's baseline behaviour, alert debouncing, and the
-liveness sweep's refusal to touch `status`.
+105 tests (91 across the services, 14 in the dashboard). The services use Node's built-in
+runner (no test framework dependency); the dashboard uses Vitest. They cover the parts where
+a mistake is silent rather than loud: the JWT middleware (including `alg:none` rejection and
+role gating), login rate limiting and its per-IP keying, per-viewer MQTT delivery scoping,
+liveness reporting and its throttle, expired-session handling in the API client, ring-buffer
+eviction, the z-score detector's baseline behaviour, alert debouncing, and the liveness
+sweep's refusal to touch `status`.
+
+Two suites cover what no single-process test can reach — the guarantees that only exist
+*across* replicas. `alert-rules-service/test/sharedState.test.js` and
+`data-ingestion-service/test/sharedRingBuffer.test.js` load two independent copies of a
+module, each with its own in-memory state, against one shared store: the production topology.
+They assert that a cooldown set by one replica suppresses the other, that simultaneous
+evaluation yields exactly one alert, that both replicas answer `/recent` identically, and
+that a store outage degrades the documented way rather than throwing. The stand-in store is
+hand-written and implements only the commands the code issues, so it doubles as a statement
+of which Redis semantics the implementation depends on.
 
 ---
 
@@ -320,11 +363,14 @@ liveness sweep's refusal to touch `status`.
 
 ```
 services/
-  api-gateway/              single public entry point, proxies to the four below
+  api-gateway/              single public entry point, proxies to the services below
   auth-service/             users, password hashing, JWT issuing
   device-registry-service/  device lifecycle, device credentials, liveness sweep
   data-ingestion-service/   REST + embedded MQTT broker, ring buffer, persistence
   alert-rules-service/      threshold + z-score detection, debounce, webhooks
+  insight-agent/            LLM triage over clustered alerts
 dashboard/                  React SPA — fleet view, live charts, phone sensor node
 simulator/                  self-provisioning virtual device fleet
+k8s/                        Kubernetes manifests — see k8s/README.md for the
+                            replica counts and why each one is what it is
 ```

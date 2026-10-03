@@ -16,6 +16,12 @@ metadata:
 data:
   NODE_ENV: "production"
 
+  # Shared state for everything that would otherwise be per-replica (see
+  # 05-redis.yaml). Not a secret: no password, cluster-internal only, and it is
+  # the absence of this value that silently drops every service back to
+  # in-process state — so it belongs somewhere readable rather than in a Secret.
+  REDIS_URL: "redis://redis:6379"
+
   # --- service discovery ---
   AUTH_URL: "http://auth-service:3001"
   DEVICE_REGISTRY_URL: "http://device-registry-service:3002"
@@ -44,6 +50,9 @@ data:
 
   # --- data-ingestion-service ---
   RING_BUFFER_SIZE: "50"
+  # How long an idle device's live window survives in Redis. Long enough to
+  # outlast a reporting gap, short enough that retired devices age out.
+  RING_BUFFER_TTL_S: "21600"
   VIEWER_SCOPE_REFRESH_MS: "30000"
   # Must stay well below STALE_AFTER_MS, or a device is swept offline in the gap
   # between two liveness reports while it is publishing perfectly happily.
@@ -56,6 +65,9 @@ data:
   MOTION_SHAKE_THRESHOLD: "25"
   SOUND_BASELINE_WINDOW: "20"
   SOUND_Z_SCORE_THRESHOLD: "2.5"
+  # Same reasoning as RING_BUFFER_TTL_S: a device that stops reporting should
+  # not hold its baseline window in Redis indefinitely.
+  SOUND_BASELINE_TTL_S: "86400"
   ALERT_WEBHOOK_URL: ""
 
   # --- api-gateway ---
