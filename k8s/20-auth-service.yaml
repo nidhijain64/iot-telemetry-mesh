@@ -1,8 +1,13 @@
 # auth-service — users, password hashing, token issuing.
 #
-
+# Two replicas, and the login rate limiter is now exact across both of them.
+# It used to keep its counters in process memory, which made the effective limit
+# RATE_LIMIT_LOGIN_MAX x replicas — every pod added here quietly handed an
+# attacker another full window of password guesses. The counters moved to the
+# Redis in 05-redis.yaml, so the advertised limit is the real one whatever this
+# number says.
 apiVersion: apps/v1
-kind: Deployment #keeps a set number of copies runnign
+kind: Deployment # keeps a set number of copies running
 metadata:
   name: auth-service
   namespace: telemetry
@@ -18,6 +23,11 @@ spec:
       containers:
         - name: auth-service
           image: iot-telemetry-mesh-auth-service:latest # the docker image it runs
+          # Never, not IfNotPresent: these images exist only inside the
+          # cluster, loaded with `minikube image load`. IfNotPresent still lets
+          # kubelet fall back to a registry pull when it cannot find one, and
+          # that attempt hangs for minutes against Docker Hub before failing.
+          # Never turns a missing image into an immediate, obvious error.
           imagePullPolicy: Never
           ports:
             - containerPort: 3001
