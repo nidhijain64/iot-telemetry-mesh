@@ -23,12 +23,18 @@ module.exports = { client: null, isEnabled };
 if (REDIS_URL) {
   const Redis = require('ioredis');
   module.exports.client = new Redis(REDIS_URL, {
-    // Fail fast instead of queueing commands forever. Every caller here already
-    // has a working in-memory path, so a dead Redis should surface as an error
-    // they can fall back from rather than making an alert check hang until a
-    // reconnect eventually succeeds.
+    // Bounded retries, then the command rejects and the caller falls back to its
+    // in-memory path. A dead Redis must not make an alert check hang waiting for
+    // a reconnect that may never come.
     maxRetriesPerRequest: 2,
-    enableOfflineQueue: false,
+    // The offline queue stays ENABLED (the default), and that is deliberate.
+    // ioredis connects asynchronously, so commands issued in the first few
+    // milliseconds of process start arrive before the socket is writeable. With
+    // the queue off they fail instantly with "Stream isn't writeable" and every
+    // caller silently degrades to local state — which, right after a rollout, is
+    // precisely when two replicas would duplicate alerts. Queued commands run as
+    // soon as the connection is ready; maxRetriesPerRequest above is what stops
+    // the queue becoming an unbounded wait when Redis is genuinely gone.
   });
   // Without a listener an ioredis connection error is an unhandled 'error'
   // event, which takes the process down — the opposite of degrading gracefully.

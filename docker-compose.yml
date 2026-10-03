@@ -36,7 +36,7 @@ services:
     # Cap the memory and evict rather than refuse writes if it is ever hit:
     # losing an old baseline window degrades detection, a write error would
     # break ingestion outright.
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save ""
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

@@ -150,7 +150,15 @@ async function createBroker() {
     return callback(new Error('devices are not authorized to subscribe'));
   };
 
-  
+  // The actual tenant boundary for live telemetry. authorizeSubscribe can't be
+  // it: the dashboard subscribes to the wildcard `telemetry/#`, which is one
+  // subscription covering devices that come and go, so there is nothing
+  // per-device to allow or deny at subscribe time. This hook runs per delivered
+  // message instead, which is the only point where the specific device is known.
+  //
+  // Without it, every logged-in user's browser received every other user's
+  // telemetry over the socket — the REST scoping said otherwise, but the live
+  // stream simply ignored it.
   aedes.authorizeForward = (client, packet) => {
     if (!client || !client.isViewer) return packet;
     if (!packet.topic || !packet.topic.startsWith(TELEMETRY_PREFIX)) return null;

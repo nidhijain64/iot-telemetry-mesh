@@ -116,6 +116,14 @@ outage costs exactness rather than availability. The fallbacks lean the same way
 each time: a duplicated alert beats a missed one, unthrottled logins beat locking
 users out, and a dropped live-chart entry never costs a MongoDB write.
 
+One subtlety that only shows up under a real server: ioredis connects
+asynchronously, so commands issued in the first milliseconds of process start
+arrive before the socket is writeable. With the offline queue disabled they fail
+instantly and every caller degrades to local state — right after a rollout,
+which is exactly when two replicas would duplicate alerts. The queue is left
+enabled for that reason, and `maxRetriesPerRequest` is what keeps it from
+becoming an unbounded wait when Redis is genuinely gone.
+
 Verify the shared paths without a cluster:
 
 ```bash

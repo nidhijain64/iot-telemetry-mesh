@@ -22,10 +22,12 @@ if (REDIS_URL) {
   const Redis = require('ioredis');
   module.exports.client = new Redis(REDIS_URL, {
     // The limiter is in the request path, so a Redis stall must not become a
-    // login stall. rate-limit-redis surfaces the failure and the limiter is
-    // configured to let the request through rather than hang.
+    // login stall. Bounded retries, then rate-limit-redis surfaces the failure
+    // and passOnStoreError lets the request through rather than hang.
     maxRetriesPerRequest: 2,
-    enableOfflineQueue: false,
+    // Offline queue left ENABLED (the default): ioredis connects asynchronously,
+    // so logins in the first milliseconds after boot would otherwise fail the
+    // store and run unthrottled. Queued commands run once the socket is ready.
   });
   module.exports.client.on('error', (err) => {
     console.warn(`[redis] ${err.message}`);

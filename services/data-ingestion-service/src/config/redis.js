@@ -42,8 +42,11 @@ module.exports = { client: null, isEnabled, connectionOptions, REDIS_URL };
 if (REDIS_URL) {
   const Redis = require('ioredis');
   module.exports.client = new Redis(REDIS_URL, {
+    // Bounded retries, then the command rejects and the caller falls back.
     maxRetriesPerRequest: 2,
-    enableOfflineQueue: false,
+    // Offline queue left ENABLED (the default): ioredis connects asynchronously,
+    // so readings arriving in the first milliseconds after boot would otherwise
+    // bypass the shared buffer and land only in this replica's memory.
   });
   module.exports.client.on('error', (err) => {
     console.warn(`[redis] ${err.message}`);

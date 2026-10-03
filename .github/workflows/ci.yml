@@ -18,6 +18,7 @@ jobs:
           - device-registry-service
           - data-ingestion-service
           - alert-rules-service
+          - insight-agent
     defaults:
       run:
         working-directory: services/${{ matrix.service }}
