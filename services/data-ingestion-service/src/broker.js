@@ -1,18 +1,14 @@
-// ============================================================
-// services/data-ingestion-service/src/broker.js
-//
-// Builds and returns a configured aedes instance. Does NOT create
-// its own server or call .listen() — index.js attaches this to
-// the same HTTP server Express uses, so REST and MQTT share one port.
-// ============================================================
+// Configure Aedes; index.js attaches it to the shared HTTP server.
 
 const aedesExports = require('aedes');
 const Aedes = aedesExports.Aedes || aedesExports.default || aedesExports;
 const mqemitterRedis = require('mqemitter-redis');
 const aedesPersistenceRedis = require('aedes-persistence-redis');
 const axios = require('axios');
+const { randomUUID } = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const ringBuffer = require('./ringBuffer');
+const { validateReading } = require('./validateReading');
 const Reading = require('./models/Reading');
 const { reportSeen } = require('./liveness');
 
@@ -30,10 +26,7 @@ const VIEWER_SCOPE_REFRESH_MS = Number(process.env.VIEWER_SCOPE_REFRESH_MS) || 3
 
 const TELEMETRY_PREFIX = 'telemetry/';
 
-// Asks device-registry which devices this viewer may see, using the viewer's
-// OWN token. That endpoint is already scoped (operators get their own devices,
-// admins get the fleet), so ownership lives in exactly one place instead of
-// being reimplemented — and differently — here.
+// Use the viewer's JWT to fetch their allowed devices from the registry.
 async function fetchVisibleDeviceIds(token) {
   const { data } = await axios.get(`${DEVICE_REGISTRY_URL}/api/devices`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -42,13 +35,7 @@ async function fetchVisibleDeviceIds(token) {
   return new Set(data.map((d) => d.deviceId));
 }
 
-// Aedes keeps its subscription emitter and its session/retained store in memory
-// by default, and both are per-process. That is the reason this Deployment ran a
-// single replica: a device connecting to replica A publishes into A's emitter
-// only, so a dashboard holding its socket on replica B never sees that device at
-// all — no error, just a device that silently isn't there.
-//
-// Pointing both at Redis makes the brokers one logical broker.
+// Share the emitter and session store through Redis so viewers receive messages across replicas.
 function brokerOptions() {
   if (!redis.isEnabled()) return {};
 
@@ -87,6 +74,8 @@ async function createBroker() {
       client.isViewer = true;
       client.deviceId = null;
       client.userId = decoded.sub;
+      client.tokenExpiresAt = decoded.exp * 1000;
+      if (!Number.isFinite(client.tokenExpiresAt)) return callback(null, false);
       client.visibleDeviceIds = new Set();
 
       try {
@@ -97,11 +86,15 @@ async function createBroker() {
         console.error(`[broker] could not load device scope for ${decoded.sub}:`, err.message);
       }
 
+      if (Date.now() >= client.tokenExpiresAt) return callback(null, false);
+      client.expiryTimer = setTimeout(() => client.close(), Math.min(client.tokenExpiresAt - Date.now(), 2147483647));
       client.scopeRefresh = setInterval(async () => {
         try {
           client.visibleDeviceIds = await fetchVisibleDeviceIds(secretOrToken);
         } catch (err) {
-          // Keep the previous set rather than widening or clearing it.
+          client.visibleDeviceIds = new Set();
+          if ([401, 403].includes(err.response?.status)) client.close();
+          // Fail closed until a subsequent refresh succeeds.
           console.warn(`[broker] scope refresh failed for ${decoded.sub}: ${err.message}`);
         }
       }, VIEWER_SCOPE_REFRESH_MS);
@@ -120,6 +113,8 @@ async function createBroker() {
       );
       if (response.data && response.data.valid) {
         client.deviceId = name;
+        client.deviceSecret = secretOrToken;
+        client.deviceType = response.data.type;
         client.isViewer = false;
         console.log(`[broker] authenticated device: ${name}`);
         return callback(null, true);
@@ -132,15 +127,20 @@ async function createBroker() {
     }
   };
 
-  aedes.authorizePublish = (client, packet, callback) => {
-    if (client.isViewer) {
-      return callback(new Error('viewers are not authorized to publish'));
+  aedes.authorizePublish = async (client, packet, callback) => {
+    try {
+      if (client.isViewer || packet.topic !== `${TELEMETRY_PREFIX}${client.deviceId}`) throw new Error('publish not authorized');
+      const reading = validateReading(packet.payload);
+      if (reading.source !== client.deviceType) throw new Error('source does not match registered device');
+      // Check current credentials and lifecycle on every publish, including established sessions.
+      const { data } = await axios.post(`${DEVICE_REGISTRY_URL}/api/devices/${encodeURIComponent(client.deviceId)}/verify-credentials`,
+        { secret: client.deviceSecret }, { headers: { 'x-service-key': INTERNAL_SERVICE_KEY }, timeout: 3000 });
+      if (!data.valid) throw new Error('device access revoked');
+      packet.payload = Buffer.from(JSON.stringify({ ...reading, readingId: randomUUID(), receivedAt: new Date().toISOString() }));
+      callback(null);
+    } catch (err) {
+      callback(new Error('publish rejected: ' + err.message));
     }
-    const expectedTopic = `${TELEMETRY_PREFIX}${client.deviceId}`;
-    if (packet.topic === expectedTopic) {
-      return callback(null);
-    }
-    return callback(new Error(`not authorized to publish to ${packet.topic}`));
   };
 
   aedes.authorizeSubscribe = (client, sub, callback) => {
@@ -150,17 +150,10 @@ async function createBroker() {
     return callback(new Error('devices are not authorized to subscribe'));
   };
 
-  // The actual tenant boundary for live telemetry. authorizeSubscribe can't be
-  // it: the dashboard subscribes to the wildcard `telemetry/#`, which is one
-  // subscription covering devices that come and go, so there is nothing
-  // per-device to allow or deny at subscribe time. This hook runs per delivered
-  // message instead, which is the only point where the specific device is known.
-  //
-  // Without it, every logged-in user's browser received every other user's
-  // telemetry over the socket — the REST scoping said otherwise, but the live
-  // stream simply ignored it.
+  // Check ownership for every delivery: wildcard subscriptions alone cannot enforce device access.
   aedes.authorizeForward = (client, packet) => {
     if (!client || !client.isViewer) return packet;
+    if (client.tokenExpiresAt !== undefined && Date.now() >= client.tokenExpiresAt) return null;
     if (!packet.topic || !packet.topic.startsWith(TELEMETRY_PREFIX)) return null;
 
     const deviceId = packet.topic.slice(TELEMETRY_PREFIX.length);
@@ -171,11 +164,7 @@ async function createBroker() {
   };
 
   aedes.on('publish', async (packet, client) => {
-    // This guard is load-bearing once the emitter is shared. Every replica sees
-    // every message on the Redis channel, but `client` is set only on the replica
-    // the publisher is actually connected to — so the persist-and-check work below
-    // runs exactly once per reading instead of once per replica. Without it,
-    // scaling out would multiply Mongo writes and alert checks by the replica count.
+    // Only the publisher's replica has a client; other replicas must not persist or check the reading again.
     if (!client) return;
     if (!packet.topic.startsWith(TELEMETRY_PREFIX)) return;
 
@@ -187,11 +176,8 @@ async function createBroker() {
       return;
     }
 
-    const entry = { ...reading, deviceId: client.deviceId, receivedAt: new Date().toISOString() };
-    // Awaited, unlike the two fire-and-forget calls below: the ring buffer backs
-    // the dashboard's live chart, so letting the alert call overtake it would
-    // surface an alert for a reading the chart has not drawn yet. push() handles
-    // its own Redis failures and never rejects, so this adds latency, not risk.
+    const entry = { ...reading, deviceId: client.deviceId };
+    // Update the live buffer before triggering alerts for this reading.
     await ringBuffer.push(client.deviceId, entry);
 
     // Marks the device alive in the registry. Fire-and-forget and throttled
@@ -221,6 +207,8 @@ async function createBroker() {
   aedes.on('clientDisconnect', (client) => {
     // The refresh timer holds a reference to the client — without this, every
     // dashboard tab that ever connected keeps polling device-registry forever.
+    clearTimeout(client.expiryTimer);
+    client.deviceSecret = null;
     if (client.scopeRefresh) {
       clearInterval(client.scopeRefresh);
       client.scopeRefresh = null;

@@ -45,10 +45,7 @@ app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'insight-agent' }));
 
-// Human-facing. Insights have no owner of their own, so scoping reuses
-// device-registry's already-scoped device list — the same approach the alert
-// feed takes, rather than reimplementing ownership here and risking the two
-// drifting apart.
+// Scope insights through the registry's allowed device list.
 app.get('/api/insights', verifyToken, async (req, res) => {
   try {
     let filter = {};
@@ -73,17 +70,24 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: 'internal server error' });
 });
 
-// groq-sdk uses node-fetch, which — like Node's built-in fetch — ignores
-// HTTP_PROXY and HTTPS_PROXY, unlike curl. On a network that requires a proxy
-// the SDK times out with a bare "Connection error" and no hint that a proxy was
-// the cause. Passing an explicit agent makes it behave like every other HTTP
-// client on the machine; with no proxy set, the client is constructed as normal.
+// Pass an explicit proxy agent when HTTP_PROXY or HTTPS_PROXY is configured.
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 if (proxyUrl) console.log(`[boot] routing model calls through proxy ${proxyUrl}`);
 
 const groq = new Groq(proxyUrl ? { httpAgent: new HttpsProxyAgent(proxyUrl) } : {});
 
+let polling = false;
 async function pollOnce() {
+  if (polling) return;
+  polling = true;
+  try {
+    await processAlerts();
+  } finally {
+    polling = false;
+  }
+}
+
+async function processAlerts() {
   let alerts;
   try {
     const since = new Date(Date.now() - agent.WINDOW_MS).toISOString();
@@ -102,8 +106,8 @@ async function pollOnce() {
   for (const cluster of clusters) {
     // Checked per device rather than globally: a quiet device that suddenly
     // misbehaves should not be held back because a different one was noisy.
-    if (await agent.recentlyExplained(cluster.deviceId)) continue;
     try {
+      if (await agent.recentlyExplained(cluster.deviceId)) continue;
       const insight = await agent.explainCluster(groq, cluster);
       if (insight) {
         console.log(`[agent] ${cluster.deviceId}: ${insight.headline} (${insight.severity})`);
@@ -128,7 +132,9 @@ async function start() {
   console.log(`[agent] polling every ${POLL_INTERVAL_MS / 1000}s, window ${agent.WINDOW_MS / 60000}min, min ${agent.MIN_ALERTS} alerts`);
 }
 
-start().catch((err) => {
+if (require.main === module) start().catch((err) => {
   console.error('[boot] failed to start:', err.message);
   process.exit(1);
 });
+
+module.exports = { pollOnce };

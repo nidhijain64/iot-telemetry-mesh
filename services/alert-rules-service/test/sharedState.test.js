@@ -1,17 +1,5 @@
-// The shared-state guarantees this service depends on once it runs more than
-// one replica (k8s/23-alert-rules-service.yaml sets replicas: 2).
-//
-// The other detector tests cover the in-process fallback. These cover the part
-// that only exists across replicas, and that no single-process test can reach:
-// two independent module instances, each with its own in-memory Map, talking to
-// one shared store. That is precisely the production topology.
-//
-// The stand-in store below implements only the commands the detectors actually
-// use, which also makes it a written statement of what they rely on: SET with
-// NX and PX, LPUSH, LTRIM, LRANGE, EXPIRE. If a future change needs semantics
-// this fake doesn't have, that is the signal to reach for a real Redis.
+// Verify shared debounce and baseline state using independent module instances.
 
-const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 
@@ -118,14 +106,14 @@ function createFakeRedis() {
 // Loads a fresh copy of a detector wired to `store` — one "replica". Each copy
 // gets its own module scope, so its in-process Map is genuinely separate.
 function loadReplica(modulePath, store) {
-  for (const key of [CONFIG, DEBOUNCE, BASELINE]) delete require.cache[require.resolve(key)];
+  jest.resetModules();
   const config = require(CONFIG);
   config.client = store;
   return require(modulePath);
 }
 
-test('debounce across replicas', async (t) => {
-  await t.test('a cooldown set by one replica suppresses the other', async () => {
+describe('debounce across replicas', () => {
+  test('a cooldown set by one replica suppresses the other', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(DEBOUNCE, store);
     const replicaB = loadReplica(DEBOUNCE, store);
@@ -138,7 +126,7 @@ test('debounce across replicas', async (t) => {
     );
   });
 
-  await t.test('simultaneous evaluation yields exactly one alert', async () => {
+  test('simultaneous evaluation yields exactly one alert', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(DEBOUNCE, store);
     const replicaB = loadReplica(DEBOUNCE, store);
@@ -155,7 +143,7 @@ test('debounce across replicas', async (t) => {
     );
   });
 
-  await t.test('each alert type keeps its own cooldown', async () => {
+  test('each alert type keeps its own cooldown', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(DEBOUNCE, store);
     const replicaB = loadReplica(DEBOUNCE, store);
@@ -164,7 +152,7 @@ test('debounce across replicas', async (t) => {
     assert.strictEqual(await replicaB.shouldFire('dev-3', 'motion-shake'), true);
   });
 
-  await t.test('the cooldown carries a TTL so nothing has to sweep it', async () => {
+  test('the cooldown carries a TTL so nothing has to sweep it', async () => {
     const store = createFakeRedis();
     const replica = loadReplica(DEBOUNCE, store);
 
@@ -173,7 +161,7 @@ test('debounce across replicas', async (t) => {
     assert.ok(ttl > 0 && ttl <= 60000, `expected a TTL within the cooldown, got ${ttl}`);
   });
 
-  await t.test('a store failure falls back to firing rather than going silent', async () => {
+  test('a store failure falls back to firing rather than going silent', async () => {
     const broken = {
       async set() {
         throw new Error('connection refused');
@@ -189,8 +177,8 @@ test('debounce across replicas', async (t) => {
   });
 });
 
-test('sound baseline across replicas', async (t) => {
-  await t.test('replicas judge against a window both of them contributed to', async () => {
+describe('sound baseline across replicas', () => {
+  test('replicas judge against a window both of them contributed to', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(BASELINE, store);
     const replicaB = loadReplica(BASELINE, store);
@@ -207,7 +195,7 @@ test('sound baseline across replicas', async (t) => {
     assert.ok(anomaly.mean > 49 && anomaly.mean < 53, `baseline should reflect both, got ${anomaly.mean}`);
   });
 
-  await t.test('the shared window is trimmed to SOUND_BASELINE_WINDOW', async () => {
+  test('the shared window is trimmed to SOUND_BASELINE_WINDOW', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(BASELINE, store);
     const replicaB = loadReplica(BASELINE, store);
@@ -218,7 +206,7 @@ test('sound baseline across replicas', async (t) => {
     assert.strictEqual(await store.llen('sound:mic-2'), 5, 'window must not grow without bound');
   });
 
-  await t.test('a store failure degrades to a local window instead of throwing', async () => {
+  test('a store failure degrades to a local window instead of throwing', async () => {
     const broken = {
       async lrange() {
         throw new Error('connection refused');

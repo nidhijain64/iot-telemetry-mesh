@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import mqtt from 'mqtt';
 import { login, registerUser, registerDevice, issueDeviceCredentials } from '../lib/api';
 import { setToken, clearToken } from '../lib/auth';
@@ -10,12 +10,7 @@ function secretKey(deviceId) {
 
 const BROWSER_ID_KEY = 'iot_browser_id';
 
-// A device id built from the username alone made every phone belonging to one
-// account the SAME device: both published to telemetry/phone-<user>, so the
-// dashboard showed a single card flickering between them — and issuing
-// credentials for the second phone invalidated the first one's secret, silently
-// disconnecting it. This suffix is generated once per browser and kept in
-// localStorage, so each phone is its own device and keeps its own credentials.
+// Keep a stable ID per browser so phones sharing an account get separate credentials.
 function browserId() {
   let id = null;
   try {
@@ -33,31 +28,20 @@ function browserId() {
 }
 
 export default function MobileNode() {
-  // Deliberately starts signed out, ignoring any token left in localStorage by
-  // the main dashboard. A visitor who looked at the demo there would otherwise
-  // register their phone into the demo account's fleet. Each phone signs up as
-  // its own user, which is also what gives the dashboard's per-user scoping
-  // something real to show.
+  // Require a separate phone login to avoid registering devices under the public demo account.
   const [token, setLocalToken] = useState(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  // Opens on sign-up. Most people reaching this page arrived from the demo link
-  // and have no account; more importantly, a visitor signing in as the shared
-  // demo admin would register their phone into the demo fleet, mixing their
-  // readings with everyone else's. Their own account keeps it separate, and the
-  // dashboard's per-user scoping then has something real to demonstrate.
   const [isSignUp, setIsSignUp] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const [label, setLabel] = useState(() => `${/Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iPhone' : 'Browser'} node`);
   const [issuedSecret, setIssuedSecret] = useState(null);
 
-  // Both derived during render rather than synced through an effect: deviceId is
-  // a pure function of the username, and the cached secret is a pure function of
-  // deviceId. Writing them into state from an effect only added a second render
-  // pass that could show a stale deviceId in between.
-  const deviceId = username ? `phone-${username}-${browserId()}` : '';
+  const [browserSuffix] = useState(browserId);
+  const normalizedUsername = username.trim().toLowerCase();
+  const deviceId = normalizedUsername ? `phone-${normalizedUsername}-${browserSuffix}` : '';
   const cachedSecret = deviceId ? localStorage.getItem(secretKey(deviceId)) : null;
   const secret = issuedSecret ?? cachedSecret;
   const [settingUp, setSettingUp] = useState(false);
@@ -75,6 +59,29 @@ export default function MobileNode() {
   const locationRef = useRef(null);
   const geoWatchRef = useRef(null);
   const intervalRef = useRef(null);
+  const streamRef = useRef(null);
+  const motionHandlerRef = useRef(null);
+  const orientationHandlerRef = useRef(null);
+  const monitoringSessionRef = useRef(null);
+
+  function cleanupMonitoring() {
+    monitoringSessionRef.current = null;
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    if (geoWatchRef.current !== null) navigator.geolocation.clearWatch(geoWatchRef.current);
+    geoWatchRef.current = null;
+    if (motionHandlerRef.current) window.removeEventListener('devicemotion', motionHandlerRef.current);
+    if (orientationHandlerRef.current) window.removeEventListener('deviceorientation', orientationHandlerRef.current);
+    motionHandlerRef.current = orientationHandlerRef.current = null;
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    clientRef.current?.end(true);
+    clientRef.current = null;
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = analyserRef.current = null;
+  }
+
+  useEffect(() => () => cleanupMonitoring(), []);
 
   function appendLog(msg) {
     setLog((prev) => `${msg}\n${prev}`.slice(0, 2000));
@@ -107,6 +114,8 @@ export default function MobileNode() {
   }
 
   function handleLogout() {
+    cleanupMonitoring();
+    setStatus('idle');
     clearToken();
     setLocalToken(null);
     setUsername('');
@@ -130,6 +139,10 @@ export default function MobileNode() {
   }
 
   async function startMonitoring() {
+    if (monitoringSessionRef.current) return;
+    const session = {};
+    monitoringSessionRef.current = session;
+    setStatus('connecting');
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
       try {
         const result = await DeviceMotionEvent.requestPermission();
@@ -139,18 +152,14 @@ export default function MobileNode() {
       }
     }
 
-    window.addEventListener('devicemotion', (event) => {
+    if (monitoringSessionRef.current !== session) return;
+    motionHandlerRef.current = (event) => {
       const acc = event.accelerationIncludingGravity;
       if (acc) motionRef.current = { x: acc.x, y: acc.y, z: acc.z };
-    });
+    };
+    window.addEventListener('devicemotion', motionHandlerRef.current);
 
-    // One continuous GPS watch instead of a fresh fix per reading. Asking for a
-    // position every publish gave iOS Safari 3 seconds to acquire one, which it
-    // almost never manages — location was missing from every single iPhone
-    // reading while Android, which answers from cache, looked fine. A watch
-    // acquires once and then updates as the device moves, so publishing reads a
-    // value that is already there. maximumAge lets it reuse a recent fix rather
-    // than waking the GPS each time and draining the battery.
+    // Keep a GPS watch active so publishing can use the latest available fix.
     if (navigator.geolocation) {
       geoWatchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
@@ -163,18 +172,14 @@ export default function MobileNode() {
 
     // Tilt. iOS gates this behind the same permission prompt as motion, which
     // requestPermission() above has already answered for both.
-    window.addEventListener('deviceorientation', (event) => {
+    orientationHandlerRef.current = (event) => {
       if (event.alpha === null && event.beta === null && event.gamma === null) return;
       orientationRef.current = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
-    });
+    };
+    window.addEventListener('deviceorientation', orientationHandlerRef.current);
 
     try {
-      // All three are ON by default and all three are wrong for measuring a
-      // room. Echo cancellation subtracts this device's own speaker output, so
-      // music playing on the phone reads as near-silence. Auto gain control
-      // normalises level, which is precisely the signal being measured — it
-      // pins loud and quiet to roughly the same number. Noise suppression
-      // strips the ambient sound that is the whole point here.
+      // Disable audio processing to preserve changes in ambient sound level.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -182,30 +187,46 @@ export default function MobileNode() {
           autoGainControl: false,
         },
       });
+      if (monitoringSessionRef.current !== session) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      streamRef.current = stream;
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       // Safari starts an AudioContext suspended, and a suspended context feeds
       // the analyser nothing but silence.
+      audioCtxRef.current = audioCtx;
       if (audioCtx.state === 'suspended') await audioCtx.resume();
+      if (monitoringSessionRef.current !== session) return;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
-      audioCtxRef.current = audioCtx;
       analyserRef.current = analyser;
     } catch (err) {
       appendLog(`Microphone permission error: ${err.message} — sound level unavailable.`);
     }
 
+    if (monitoringSessionRef.current !== session) return;
     const client = mqtt.connect(withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss'), { username: deviceId, password: secret });
     clientRef.current = client;
 
     client.on('connect', () => {
+      if (monitoringSessionRef.current !== session) return;
       setStatus('monitoring');
       appendLog('Connected to broker.');
+      clearInterval(intervalRef.current);
       intervalRef.current = setInterval(publishReading, 5000);
     });
 
+    client.on('offline', () => {
+      if (monitoringSessionRef.current !== session) return;
+      clearInterval(intervalRef.current);
+      setStatus('connecting');
+    });
     client.on('error', (err) => {
+      if (monitoringSessionRef.current !== session) return;
+      cleanupMonitoring();
       setStatus('error');
       appendLog(`MQTT error: ${err.message}`);
     });
@@ -227,6 +248,8 @@ export default function MobileNode() {
   }
 
   async function publishReading() {
+    const session = monitoringSessionRef.current;
+    if (!session) return;
     const reading = { source: 'mobile-browser' };
 
     if (navigator.getBattery) {
@@ -238,6 +261,7 @@ export default function MobileNode() {
       }
     }
 
+    if (monitoringSessionRef.current !== session) return;
     if (locationRef.current) reading.location = locationRef.current;
 
     reading.motion = motionRef.current;
@@ -254,13 +278,7 @@ export default function MobileNode() {
   }
 
   function stopMonitoring() {
-    clearInterval(intervalRef.current);
-    if (geoWatchRef.current !== null) {
-      navigator.geolocation.clearWatch(geoWatchRef.current);
-      geoWatchRef.current = null;
-    }
-    if (clientRef.current) clientRef.current.end(true);
-    if (audioCtxRef.current) audioCtxRef.current.close();
+    cleanupMonitoring();
     setStatus('idle');
     appendLog('Stopped.');
   }
@@ -347,7 +365,7 @@ export default function MobileNode() {
         motion, and ambient sound level.
       </p>
 
-      {status !== 'monitoring' ? (
+      {status === 'idle' || status === 'error' ? (
         <button onClick={startMonitoring} className="w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 font-medium">
           Start Monitoring
         </button>

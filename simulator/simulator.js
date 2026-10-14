@@ -1,17 +1,5 @@
-// ============================================================
-// simulator/simulator.js
-//
-// Self-provisioning: on startup, logs in as a real user, then for
-// each simulated device either finds it already registered or
-// registers it and issues credentials. Secrets are cached locally
-// in device-secrets.json (gitignored) since device-registry-service
-// only ever returns a secret once, at issuance time.
-//
-// Publishes temperature, humidity, and a slowly-draining battery
-// level per device, with a small chance per tick of a real spike —
-// so the alert system has something to actually catch during a
-// live demo, not just in a one-off manual test.
-// ============================================================
+// Provision simulated devices and publish telemetry.
+// Cache issued credentials in gitignored device-secrets.json.
 
 require('dotenv').config();
 const fs = require('fs');
@@ -89,10 +77,21 @@ function startDevicePublisher(deviceId, secret) {
   let humidity = 45 + Math.random() * 10;
   let battery = 80 + Math.random() * 20;
 
+  let publishTimer;
+  function stopPublishing() {
+    clearInterval(publishTimer);
+    publishTimer = null;
+  }
+  client.on('offline', stopPublishing);
+  client.on('close', stopPublishing);
+  client.on('end', stopPublishing);
+
   client.on('connect', () => {
+    stopPublishing();
     console.log(`[simulator] ${deviceId} connected`);
 
-    setInterval(() => {
+    publishTimer = setInterval(() => {
+      if (!client.connected) return;
       temperature = randomWalk(temperature, 15, 45, 1.5);
       humidity = randomWalk(humidity, 20, 90, 3);
       battery = Math.max(0, battery - Math.random() * 0.3); // slow one-way drain, like a real unattended sensor
@@ -137,7 +136,9 @@ async function main() {
   console.log(`[simulator] running ${FLEET_SIZE} device(s), publishing every ${PUBLISH_INTERVAL_MS}ms`);
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
   console.error('[simulator] fatal error:', err.message);
   process.exit(1);
 });
+
+module.exports = { startDevicePublisher };

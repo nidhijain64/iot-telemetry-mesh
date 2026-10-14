@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 
-// One insight summarises a CLUSTER of alerts, not a single alert. A single
-// "sound level above baseline" is already in the alert feed and adding a
-// sentence to it would be noise; what is missing is what three of them in four
-// minutes, plus a shake, together mean.
+// Each insight summarizes a group of alerts for one device.
 const insightSchema = new mongoose.Schema(
   {
     deviceId: { type: String, required: true, index: true },

@@ -11,7 +11,10 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || '1h';
 
 router.post('/register', registerLimiter, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username: rawUsername, password } = req.body || {};
+    if (typeof rawUsername !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'username and password must be strings' });
+    const username = rawUsername.trim().toLowerCase();
+    if (!/^[a-z0-9_-]{3,32}$/.test(username)) return res.status(400).json({ error: 'username must contain 3–32 letters, numbers, underscores or hyphens' });
     if (!username || !password) return res.status(400).json({ error: 'username and password are required' });
     if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
 
@@ -24,6 +27,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     return res.status(201).json({ id: user._id, username: user.username, role: user.role });
   } catch (err) {
+    if (err.code === 11000) return res.status(409).json({ error: 'username already taken' });
     console.error('[auth/register]', err.message);
     return res.status(500).json({ error: 'internal error' });
   }
@@ -31,7 +35,10 @@ router.post('/register', registerLimiter, async (req, res) => {
 
 router.post('/login', loginLimiter, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username: rawUsername, password } = req.body || {};
+    if (typeof rawUsername !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'username and password must be strings' });
+    const username = rawUsername.trim().toLowerCase();
+    if (!/^[a-z0-9_-]{3,32}$/.test(username)) return res.status(400).json({ error: 'username must contain 3–32 letters, numbers, underscores or hyphens' });
     if (!username || !password) return res.status(400).json({ error: 'username and password are required' });
 
     const user = await User.findOne({ username: username.toLowerCase() });

@@ -1,11 +1,4 @@
-# auth-service — users, password hashing, token issuing.
-#
-# Two replicas, and the login rate limiter is now exact across both of them.
-# It used to keep its counters in process memory, which made the effective limit
-# RATE_LIMIT_LOGIN_MAX x replicas — every pod added here quietly handed an
-# attacker another full window of password guesses. The counters moved to the
-# Redis in 05-redis.yaml, so the advertised limit is the real one whatever this
-# number says.
+# Authentication with shared Redis rate-limit counters.
 apiVersion: apps/v1
 kind: Deployment # keeps a set number of copies running
 metadata:
@@ -23,11 +16,7 @@ spec:
       containers:
         - name: auth-service
           image: iot-telemetry-mesh-auth-service:latest # the docker image it runs
-          # Never, not IfNotPresent: these images exist only inside the
-          # cluster, loaded with `minikube image load`. IfNotPresent still lets
-          # kubelet fall back to a registry pull when it cannot find one, and
-          # that attempt hangs for minutes against Docker Hub before failing.
-          # Never turns a missing image into an immediate, obvious error.
+          # Images are loaded with minikube image load; do not pull from a registry.
           imagePullPolicy: Never
           ports:
             - containerPort: 3001
@@ -38,10 +27,7 @@ spec:
             - configMapRef: { name: telemetry-config }
             - secretRef: { name: telemetry-secrets }
           resources:
-            # requests decide scheduling — how much the node must reserve.
-            # limits are the hard ceiling; exceeding memory gets the container
-            # killed. No CPU limit on purpose: CPU is throttled rather than
-            # fatal, and a ceiling just adds latency under burst.
+            # Reserve memory and CPU; cap memory while allowing CPU bursts.
             requests: { cpu: 50m, memory: 96Mi }
             limits: { memory: 256Mi }
           # Readiness gates traffic: fail and the Pod is pulled out of the

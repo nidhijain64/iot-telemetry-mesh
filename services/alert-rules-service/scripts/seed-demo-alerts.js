@@ -46,7 +46,7 @@ async function main() {
   console.log(`[seed] connected — ${mongoose.connection.name}`);
 
   if (clear) {
-    const { deletedCount } = await Alert.deleteMany({ message: { $regex: /threshold|baseline|Battery at/ } });
+    const { deletedCount } = await Alert.deleteMany({ seedTag: 'demo-alerts' });
     console.log(`[seed] removed ${deletedCount} alert(s)`);
     return;
   }
@@ -59,6 +59,7 @@ async function main() {
   // rather than passed to create() — otherwise every alert lands at "now" and
   // the burst has no shape for the model to read.
   const docs = story.map((a) => ({
+    seedTag: 'demo-alerts',
     deviceId,
     type: a.type,
     severity: a.severity,
@@ -76,9 +77,11 @@ async function main() {
   console.log(`[seed] the agent polls every 60s — watch its log, then reload the dashboard`);
 }
 
-main()
+if (require.main === module) main()
   .catch((err) => {
     console.error('[seed] failed:', err.message);
     process.exitCode = 1;
   })
   .finally(() => mongoose.disconnect());
+
+module.exports = { main };

@@ -1,12 +1,4 @@
-// ============================================================
-// Reports device liveness to device-registry, derived from the data path:
-// a device that is publishing is alive, so nothing has to send a separate
-// heartbeat and no client can claim to be online while sending nothing.
-//
-// Throttled per device, because devices publish every few seconds and the
-// registry only needs to know a device was seen recently — not the exact
-// moment of every message.
-// ============================================================
+// Report publishing devices as online, throttled per device.
 
 const axios = require('axios');
 

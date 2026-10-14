@@ -1,20 +1,5 @@
-// ============================================================
-// Ring buffer of recent telemetry, per device.
-//
-// This buffer is only for "what's happening right now" (the dashboard's live
-// view and GET /recent). Permanent history is written separately, to MongoDB,
-// in broker.js (see Reading model).
-//
-// In-process by default, which is fine for one replica and is what `npm test`
-// exercises. With REDIS_URL set it moves into Redis, because otherwise two
-// replicas answer GET /recent/:deviceId with whatever each happened to receive
-// — the same request returning different history depending on which pod the
-// Ingress routed it to.
-//
-// Still not durable in either mode: Redis holds it with a TTL rather than a
-// disk guarantee, and that is deliberate. Losing the live window costs a few
-// seconds of chart; MongoDB is what must not lose a reading.
-// ============================================================
+// Recent readings per device, shared through Redis when configured.
+// MongoDB stores durable history; this buffer is a cache.
 
 const redis = require('./config/redis');
 

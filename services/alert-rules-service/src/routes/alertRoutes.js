@@ -9,11 +9,7 @@ const { serviceUrl } = require('../config/serviceUrl');
 
 const DEVICE_REGISTRY_URL = serviceUrl(process.env.DEVICE_REGISTRY_URL, 'http://localhost:3002');
 
-// INTERNAL ONLY — called by data-ingestion-service on every message, not a
-// human request. Gated by the shared service key (same pattern as
-// device-registry's /verify-credentials), not a user JWT: there's no
-// logged-in human in this call, so a device shouldn't be able to hit this
-// directly and inject fabricated alerts/webhooks.
+// Internal ingestion endpoint; require the service key to prevent forged alerts.
 router.post('/check', async (req, res) => {
   const serviceKey = req.headers['x-service-key'];
   if (!serviceKey || serviceKey !== process.env.INTERNAL_SERVICE_KEY) {
@@ -28,11 +24,7 @@ router.post('/check', async (req, res) => {
   }
 });
 
-// INTERNAL ONLY — the insight agent reads raw alerts across every device, so it
-// cannot use the scoped human endpoint below. Gated by the shared service key,
-// same as /check: there is no logged-in human in this call, and handing unscoped
-// alerts to a user token would break the tenant boundary the scoped endpoint
-// exists to enforce.
+// Internal agent endpoint; unscoped alerts require the service key.
 router.get('/internal/recent', async (req, res) => {
   const serviceKey = req.headers['x-service-key'];
   if (!serviceKey || serviceKey !== process.env.INTERNAL_SERVICE_KEY) {
@@ -57,11 +49,7 @@ router.get('/internal/recent', async (req, res) => {
   }
 });
 
-// Human/dashboard-facing — recent alert history. Alert has no owner field
-// of its own, so scoping reuses device-registry's already-scoped device
-// list: forward the caller's own JWT there, get back only the devices
-// they're allowed to see, and filter alerts to that set. Admins keep
-// seeing everything, same as the device list.
+// Filter alerts using the caller's allowed device list. Admins see all alerts.
 router.get('/', verifyToken, async (req, res) => {
   try {
     let filter = {};

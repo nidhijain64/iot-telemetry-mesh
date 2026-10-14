@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import mqtt from 'mqtt';
 import { getDevices, getAlerts, getTelemetryHistory, getInsights } from '../lib/api';
 import { getToken, clearToken } from '../lib/auth';
 import { withScheme } from '../lib/url';
 import { warmUpServices } from '../lib/warmup';
+import { mergeHistory } from '../lib/history';
 import DeviceCard from '../components/DeviceCard';
 import AlertList from '../components/AlertList';
 import InsightList from '../components/InsightList';
@@ -16,10 +17,7 @@ const TelemetryChart = lazy(() => import('../components/TelemetryChart'));
 const MQTT_WS_URL = withScheme(import.meta.env.VITE_MQTT_WS_URL, 'wss');
 const TELEMETRY_PREFIX = 'telemetry/';
 const MAX_LIVE_POINTS = 300;
-// sessionStorage, not localStorage: hiding the guide should last the visit, not
-// forever. On a shared demo the next person to open the link is a first-time
-// visitor who needs it, and localStorage made it disappear permanently for
-// everyone using that browser — including across logout.
+// Remember guide dismissal for this tab only.
 const GUIDE_DISMISSED_KEY = 'iot_guide_dismissed';
 
 export default function Dashboard() {
@@ -32,6 +30,7 @@ export default function Dashboard() {
   // device renders empty rather than briefly charting the previous device's
   // data while the new fetch is still in flight.
   const [history, setHistory] = useState({ deviceId: null, rows: [] });
+  const pendingHistory = useRef(null);
   const [metric, setMetric] = useState('temperature');
   const [error, setError] = useState('');
   // Someone arriving from a link has no idea this page expects a phone to be
@@ -92,11 +91,7 @@ export default function Dashboard() {
     });
 
     client.on('message', (topic, payload) => {
-      // The device id comes from the TOPIC, not the payload — devices publish
-      // only their sensor values, and the broker already enforces that a device
-      // can publish to no topic but its own. Reading it off the payload (which
-      // has no deviceId field) silently bucketed every device under "undefined",
-      // so no card ever showed a live value.
+      // Use the broker-authorized topic to identify the device.
       if (!topic.startsWith(TELEMETRY_PREFIX)) return;
       const deviceId = topic.slice(TELEMETRY_PREFIX.length);
 
@@ -107,9 +102,11 @@ export default function Dashboard() {
         return; // ignore malformed payloads
       }
 
-      // Stamped here because receivedAt is added server-side on the way to
-      // MongoDB; the forwarded live packet is the device's raw payload.
-      const entry = { ...reading, deviceId, receivedAt: new Date().toISOString() };
+      const entry = { ...reading, deviceId, receivedAt: reading.receivedAt || new Date().toISOString() };
+      if (pendingHistory.current?.deviceId === deviceId) {
+        pendingHistory.current.rows.push(entry);
+        pendingHistory.current.rows = pendingHistory.current.rows.slice(-MAX_LIVE_POINTS);
+      }
       setReadings((prev) => ({ ...prev, [deviceId]: entry }));
 
       setHistory((prev) =>
@@ -132,15 +129,25 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedDeviceId) return;
     let cancelled = false;
+    const pending = { deviceId: selectedDeviceId, rows: [] };
+    pendingHistory.current = pending;
     getTelemetryHistory(selectedDeviceId)
       .then((rows) => {
-        if (!cancelled) setHistory({ deviceId: selectedDeviceId, rows });
+        if (!cancelled) {
+          setHistory({ deviceId: selectedDeviceId, rows: mergeHistory(rows, pending.rows).slice(-MAX_LIVE_POINTS) });
+          pendingHistory.current = null;
+        }
       })
       .catch(() => {
-        if (!cancelled) setError('Could not load telemetry history');
+        if (!cancelled) {
+          setError('Could not load telemetry history');
+          setHistory({ deviceId: selectedDeviceId, rows: pending.rows });
+          pendingHistory.current = null;
+        }
       });
     return () => {
       cancelled = true;
+      if (pendingHistory.current === pending) pendingHistory.current = null;
     };
   }, [selectedDeviceId]);
 

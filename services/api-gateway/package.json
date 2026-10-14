@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test"
+    "test": "jest --runInBand"
   },
   "keywords": [],
   "author": "",
@@ -17,5 +17,16 @@
     "helmet": "^8.3.0",
     "http-proxy-middleware": "^4.2.0",
     "morgan": "^1.12.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ],
+    "transform": {},
+    "restoreMocks": true
+  },
+  "devDependencies": {
+    "jest": "^30.5.2"
   }
 }

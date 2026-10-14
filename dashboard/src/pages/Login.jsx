@@ -4,10 +4,7 @@ import { login } from '../lib/api';
 import { setToken } from '../lib/auth';
 import { warmUpServices } from '../lib/warmup';
 
-// Deliberately committed, not hidden in config: this deployment exists to be
-// opened by strangers, so the credentials are part of the page rather than
-// something a visitor has to be handed separately. Set the VITE_DEMO_* vars to
-// point at a different account, or to blank to remove the panel entirely.
+// Public demo credentials. Set VITE_DEMO_* to another account or blank to hide the panel.
 const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME ?? 'admin1';
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD ?? 'FleetAdmin2026';
 

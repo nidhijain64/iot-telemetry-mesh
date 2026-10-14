@@ -18,20 +18,14 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-// Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
-// Left unset it reflects any origin, which is fine on localhost but means any
-// site a logged-in user visits could call this API from their browser — so an
-// unset value in production is a real hole, and boot says so out loud.
+// CORS_ORIGIN accepts comma-separated origins; unset allows all origins.
 const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   console.warn('[boot] CORS_ORIGIN is not set — every origin is allowed. Set it in production.');
 }
 
-// Requests arrive through the api-gateway, so the socket address is always the
-// gateway's. Trusting exactly one proxy hop makes req.ip the real client IP
-// from X-Forwarded-For — without this the rate limiter would count every user
-// into a single bucket and lock out the whole system after ten bad passwords.
+// Trust one proxy hop so rate limits use the forwarded client IP.
 app.set('trust proxy', 1);
 
 app.use(helmet());

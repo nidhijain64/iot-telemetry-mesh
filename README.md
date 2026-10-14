@@ -101,7 +101,7 @@ subscription, filtered to devices that viewer owns.
 | Auth | JWT (HS256) for users, bcrypt-hashed secrets for devices |
 | Gateway | http-proxy-middleware |
 | Infra | Docker + Docker Compose, Kubernetes manifests (`k8s/`) |
-| Tests | Node's built-in test runner (`node --test`) |
+| Tests | Jest for backend units, Vitest for dashboard units, Cypress for APIs and browser workflows |
 
 ---
 
@@ -339,8 +339,8 @@ for d in services/*/; do (cd "$d" && npm test); done
 cd dashboard && npm test
 ```
 
-105 tests (91 across the services, 14 in the dashboard). The services use Node's built-in
-runner (no test framework dependency); the dashboard uses Vitest. They cover the parts where
+The services use Jest; the dashboard uses Vitest. Run backend tests with Node
+24.9+ because the MQTT broker dependency uses ES modules. They cover the parts where
 a mistake is silent rather than loud: the JWT middleware (including `alg:none` rejection and
 role gating), login rate limiting and its per-IP keying, per-viewer MQTT delivery scoping,
 liveness reporting and its throttle, expired-session handling in the API client, ring-buffer
@@ -374,3 +374,38 @@ simulator/                  self-provisioning virtual device fleet
 k8s/                        Kubernetes manifests — see k8s/README.md for the
                             replica counts and why each one is what it is
 ```
+
+## Cypress API and browser tests
+
+Use Node.js 22 or 24 for Cypress (the existing services also support Node 20).
+Install dependencies in `dashboard` and each service first. With Docker running
+and Google Chrome installed, run:
+
+```bash
+cd dashboard
+npx cypress install
+npm run test:e2e
+```
+
+The runner creates disposable MongoDB and Redis containers, starts all six
+services and Vite with test configuration, runs Cypress, and cleans up the stack.
+It uses ports 13001–13006, 15173, 27028 and 16389; keep these free. No Render
+credentials, production data, phone permissions or live model calls are used.
+
+The suite tests API validation, authentication, device registration, duplicate
+IDs, tenant isolation, admin-only actions, browser login/logout, fleet history
+and phone setup. It runs in GitHub Actions as a separate Cypress job. Existing
+Jest and Vitest unit suites remain available through `npm test`.
+
+### Session and demo access
+
+Login sessions are scoped to each browser tab, so signing into another account in a
+second tab cannot mix its API responses with the first tab's MQTT connection.
+Refreshing the same tab retains its login; closing it ends that tab's session.
+The public demo intentionally uses an administrator: visitors can inspect the full
+fleet, including operator data. Ordinary operator accounts still see only their own
+devices. Use this public deployment for demo data.
+
+Demo alert cleanup removes only new records tagged `seedTag: "demo-alerts"`.
+Older untagged demo alerts are deliberately left alone because they cannot safely
+be distinguished from real alerts by their message text.

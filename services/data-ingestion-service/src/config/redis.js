@@ -1,17 +1,5 @@
-// ============================================================
-// Optional shared-state backend.
-//
-// Two separate things in this service are per-process, and both of them are why
-// the Deployment was pinned to one replica:
-//
-//   1. the Aedes broker's message emitter and session store, so a device
-//      connected to replica A is invisible to a dashboard attached to replica B
-//   2. the recent-telemetry ring buffer behind GET /recent/:deviceId, so two
-//      replicas would answer the same request with different history
-//
-// Both fall back to in-process state when REDIS_URL is unset, which keeps the
-// single-node run and `npm test` working with no Redis present.
-// ============================================================
+// Optional Redis backend for broker state and recent readings.
+// Without REDIS_URL, state is local to one process.
 
 const REDIS_URL = process.env.REDIS_URL || '';
 

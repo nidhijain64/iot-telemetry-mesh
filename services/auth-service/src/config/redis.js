@@ -1,12 +1,4 @@
-// ============================================================
-// Optional shared store for the login rate limiter.
-//
-// Without it the limiter counts in process memory, so each replica enforces its
-// own budget and the effective limit is RATE_LIMIT_LOGIN_MAX × replicas — an
-// attacker gains an extra window of guesses for every pod that gets scheduled.
-// With REDIS_URL set the counters are shared and the advertised limit is the
-// real one, whatever the replica count.
-// ============================================================
+// Optional shared Redis counters for authentication rate limits.
 
 const REDIS_URL = process.env.REDIS_URL || '';
 

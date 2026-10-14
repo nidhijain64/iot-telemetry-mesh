@@ -30,10 +30,7 @@ if (!process.env.INTERNAL_SERVICE_KEY) {
   process.exit(1);
 }
 
-// Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
-// Left unset it reflects any origin, which is fine on localhost but means any
-// site a logged-in user visits could call this API from their browser — so an
-// unset value in production is a real hole, and boot says so out loud.
+// CORS_ORIGIN accepts comma-separated origins; unset allows all origins.
 const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
@@ -47,13 +44,8 @@ app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'data-ingestion-service' }));
 
-// Ownership isn't known here (this service has no Device model of its
-// own) — ask device-registry, forwarding the caller's own JWT, and reuse
-// whatever it decides. It already 404s for a device you don't own, which
-// these endpoints mirror instead of leaking that the device exists.
-//
-// Returns true when the caller may see the device; otherwise it has already
-// sent the response and the caller should stop.
+// Delegate ownership checks to device-registry using the caller's JWT.
+// Returns false after sending an error response.
 async function assertDeviceVisible(req, res) {
   try {
     await axios.get(`${DEVICE_REGISTRY_URL}/api/devices/${req.params.deviceId}`, {
@@ -72,10 +64,7 @@ async function assertDeviceVisible(req, res) {
   }
 }
 
-// Live view — deliberately not durable, so this is empty (or thin) after a
-// restart. With REDIS_URL set it is shared across replicas and survives a pod
-// restart for as long as the TTL, but it is still a cache: /history below is
-// the durable answer.
+// Recent readings are a cache; use /history for durable MongoDB records.
 app.get('/api/telemetry/:deviceId/recent', verifyToken, async (req, res) => {
   if (!(await assertDeviceVisible(req, res))) return;
   res.json(await ringBuffer.getRecent(req.params.deviceId));
@@ -135,16 +124,8 @@ async function start() {
   const aedes = await createBroker();
   const server = createAppServer();
 
-  // Attaches WS handling to this SAME server — it only intercepts the
-  // WebSocket upgrade request; every normal HTTP request still goes to
-  // Express exactly as before. This is what makes ONE port serve both.
-  //
-  // No `encoding` option here: MQTT is a binary protocol, and aedes needs
-  // raw Buffer chunks from the stream. Passing `{ encoding: 'binary' }`
-  // makes the stream decode/re-encode every chunk as latin1 text first,
-  // which corrupts the packet framing — aedes's parser never recognizes a
-  // valid CONNECT packet, so authenticate() never fires and every client
-  // hangs until it times out and retries.
+  // Share the HTTP server with MQTT over WebSockets.
+  // Keep raw Buffer chunks: text encoding corrupts MQTT packet framing.
   const wss = new WebSocketServer({ server });
   wss.on('connection', (ws) => {
     const stream = createWebSocketStream(ws);

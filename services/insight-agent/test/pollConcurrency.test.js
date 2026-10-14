@@ -1,0 +1,26 @@
+process.env.JWT_SECRET = 'test';
+process.env.INTERNAL_SERVICE_KEY = 'test';
+process.env.GROQ_API_KEY = 'test';
+jest.mock('groq-sdk', () => jest.fn(() => ({})));
+jest.mock('https-proxy-agent', () => ({ HttpsProxyAgent: jest.fn() }));
+jest.mock('dotenv', () => ({ config() {} }));
+const axios = require('axios');
+const agent = require('../src/agent');
+const { pollOnce } = require('../src/index');
+test('skips overlapping polls and resumes after a model failure', async () => {
+  jest.spyOn(axios, 'get').mockResolvedValue({ data: [] });
+  jest.spyOn(agent, 'clustersWorthExplaining').mockReturnValue([{ deviceId: 'one' }]);
+  jest.spyOn(agent, 'recentlyExplained').mockResolvedValue(false);
+  let fail;
+  const model = jest.spyOn(agent, 'explainCluster').mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  const first = pollOnce();
+  await new Promise(resolve => setImmediate(resolve));
+  await pollOnce();
+  expect(model).toHaveBeenCalledTimes(1);
+  fail(new Error('model unavailable'));
+  await first;
+  model.mockResolvedValue(null);
+  await pollOnce();
+  expect(model).toHaveBeenCalledTimes(2);
+});

@@ -5,8 +5,9 @@ const mongoose = require('mongoose');
 // dashboard's "live" view — this is the durable record behind it.
 const readingSchema = new mongoose.Schema(
   {
+    readingId: { type: String },
     deviceId: { type: String, required: true, index: true },
-    source: { type: String, enum: ['simulator', 'mobile-browser'], required: true },
+    source: { type: String, enum: ['simulator', 'mobile-browser', 'physical-sensor'], required: true },
 
     temperature: { type: Number, default: null },
     humidity: { type: Number, default: null },

@@ -1,11 +1,4 @@
-// Brute-force protection for the credential endpoints. bcrypt makes each guess
-// expensive for us as well as the attacker, so an unthrottled /login is both a
-// password-guessing oracle and a cheap way to pin the CPU.
-//
-// The counters live in Redis when REDIS_URL is set. That matters for more than
-// tidiness: with in-process counters each replica enforces its own budget, so
-// the real limit is LOGIN_MAX × replicas and every pod added to the Deployment
-// hands an attacker another full window of guesses.
+// Rate-limit credential endpoints. Redis shares counters across replicas.
 const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 const redis = require('../config/redis');
@@ -25,7 +18,7 @@ function buildStore(prefix) {
   });
 }
 
-function buildLimiter(max, message, prefix) {
+function buildLimiter(max, message, prefix, skipSuccessfulRequests = true) {
   return rateLimit({
     windowMs: WINDOW_MS,
     limit: max,
@@ -33,11 +26,8 @@ function buildLimiter(max, message, prefix) {
     legacyHeaders: false,
     // Count only failed attempts: someone legitimately logging in on ten
     // devices shouldn't be locked out, but ten wrong passwords is a guesser.
-    skipSuccessfulRequests: true,
-    // A Redis outage must not become a login outage. Unthrottled logins for the
-    // duration of the outage is the lesser failure — locking every user out of
-    // their own account is an availability incident an attacker could trigger
-    // deliberately by taking Redis down.
+    skipSuccessfulRequests,
+    // Fail open on Redis errors to keep login available during an outage.
     passOnStoreError: true,
     store: buildStore(prefix),
     message: { error: message },
@@ -53,7 +43,8 @@ const loginLimiter = buildLimiter(
 const registerLimiter = buildLimiter(
   REGISTER_MAX,
   'Too many accounts created from this address. Try again later.',
-  'rl:register:'
+  'rl:register:',
+  false
 );
 
 module.exports = { loginLimiter, registerLimiter };

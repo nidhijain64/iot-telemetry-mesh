@@ -5,3 +5,6 @@ dist/
 simulator/device-secrets.json
 *.pem
 *.key
+
+dashboard/cypress/screenshots/
+dashboard/cypress/videos/

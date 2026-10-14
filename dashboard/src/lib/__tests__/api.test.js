@@ -32,7 +32,7 @@ describe('isExpiredSession', () => {
   });
 });
 
-// Map-backed stand-in for localStorage — enough for the token helpers, and
+// Map-backed stand-in for sessionStorage — enough for the token helpers, and
 // cheaper than pulling a whole DOM implementation in for four assertions.
 function fakeStorage(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -50,7 +50,7 @@ describe('handleResponseError', () => {
   beforeEach(() => {
     storage = fakeStorage({ iot_dashboard_token: 'stale-token' });
     replace = vi.fn();
-    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal('sessionStorage', storage);
     vi.stubGlobal('window', { location: { pathname: '/', replace } });
   });
 

@@ -1,4 +1,3 @@
-const test = require('node:test');
 const assert = require('node:assert');
 
 process.env.ALERT_COOLDOWN_MS = '60000';
@@ -24,13 +23,15 @@ test('tracks each device independently', async () => {
   assert.strictEqual(await shouldFire('dev-5', 'high-temperature'), true);
 });
 
-test('fires again once the cooldown has elapsed', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'] });
-  t.after(() => t.mock.timers.reset());
+test('fires again once the cooldown has elapsed', async () => {
+  jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'performance', 'hrtime'] });
+
 
   assert.strictEqual(await shouldFire('dev-6', 'high-temperature'), true);
-  t.mock.timers.tick(59000);
+  jest.setSystemTime(Date.now() + 59000);
   assert.strictEqual(await shouldFire('dev-6', 'high-temperature'), false, 'still inside cooldown');
-  t.mock.timers.tick(2000);
+  jest.setSystemTime(Date.now() + 2000);
   assert.strictEqual(await shouldFire('dev-6', 'high-temperature'), true, 'cooldown elapsed');
 });
+
+afterEach(() => jest.useRealTimers());

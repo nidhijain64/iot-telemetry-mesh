@@ -1,4 +1,3 @@
-const test = require('node:test');
 const assert = require('node:assert');
 const { serviceUrl, originList } = require('../src/config/serviceUrl');
 

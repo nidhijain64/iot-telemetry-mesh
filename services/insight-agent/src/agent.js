@@ -1,20 +1,9 @@
-// ============================================================
-// The agent loop: read recent alerts, decide which are worth explaining,
-// and ask an LLM what they mean together.
-//
-// The platform already answers "is this reading unusual?" statistically — a
-// z-score does that deterministically, for free, and without a model. What it
-// cannot answer is "what is going on with this device, and what should I do?",
-// because that needs several alerts read in combination.
-// ============================================================
+// Group recent alerts by device and request a structured model explanation.
 
 const { z } = require('zod');
 const Insight = require('./models/Insight');
 
-// gpt-oss-120b rather than llama-3.3-70b: Groq only enforces a JSON schema
-// (strict: true) on the gpt-oss and qwen families. This service writes model
-// output straight into a database, so a guaranteed shape is worth more here
-// than a slightly stronger model returning best-effort JSON.
+// Use a model that supports strict JSON schema output.
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 // A device needs at least this many alerts in the window before it is worth
@@ -24,10 +13,7 @@ const WINDOW_MS = Number(process.env.INSIGHT_WINDOW_MS) || 15 * 60 * 1000;
 // Never re-explain the same device more often than this, however noisy it gets.
 const PER_DEVICE_COOLDOWN_MS = Number(process.env.INSIGHT_COOLDOWN_MS) || 30 * 60 * 1000;
 
-// Groq takes raw JSON Schema rather than a zod object, so this is the source of
-// truth for the request. The zod schema below re-validates what comes back:
-// strict mode constrains the shape, not the meaning, and a wrong enum value
-// written into the database would be found much later than here.
+// Send JSON Schema to Groq and validate the response with Zod before saving.
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {

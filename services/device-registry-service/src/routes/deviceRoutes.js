@@ -11,7 +11,8 @@ const VALID_STATUSES = ['pending', 'active', 'decommissioned'];
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { deviceId, label, type } = req.body;
+    const { deviceId, label, type } = req.body || {};
+    if (typeof deviceId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(deviceId) || deviceId === 'dashboard' || typeof label !== 'string' || !label.trim() || label.length > 128) return res.status(400).json({ error: 'invalid device ID or label' });
     if (!deviceId || !label || !type) {
       return res.status(400).json({ error: 'deviceId, label, and type are required' });
     }
@@ -24,15 +25,13 @@ router.post('/', verifyToken, async (req, res) => {
     const device = await Device.create({ deviceId, label, type, registeredBy: req.user.sub });
     return res.status(201).json(device);
   } catch (err) {
+    if (err.code === 11000) return res.status(409).json({ error: 'deviceId already registered' });
     console.error('[devices/register]', err.message);
     return res.status(500).json({ error: 'internal error' });
   }
 });
 
-// Each operator only sees devices they registered — this is the actual
-// data boundary behind "different login, different dashboard". Admins
-// see the whole fleet, matching their role's cross-device authority
-// elsewhere (PATCH /status).
+// Operators see their own devices; admins see the entire fleet.
 router.get('/', verifyToken, async (req, res) => {
   try {
     const filter = req.user.role === 'admin' ? {} : { registeredBy: req.user.sub };
@@ -100,11 +99,8 @@ router.post('/:deviceId/heartbeat', verifyToken, async (req, res) => {
   }
 });
 
-// POST /:deviceId/credentials — issue (or reissue) a device secret.
-// Returned in PLAINTEXT exactly once; only the bcrypt hash is stored.
-// Owner-or-admin only — without this check, any logged-in user could
-// reissue ANY device's secret by guessing its deviceId and silently
-// take over a device that belongs to someone else.
+// POST /:deviceId/credentials — owner or admin only.
+// Return the secret once; store only its bcrypt hash.
 router.post('/:deviceId/credentials', verifyToken, async (req, res) => {
   try {
     const device = await Device.findOne({ deviceId: req.params.deviceId });
@@ -112,6 +108,7 @@ router.post('/:deviceId/credentials', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'device not found' });
     }
 
+    if (device.status === 'decommissioned') return res.status(403).json({ error: 'device is decommissioned' });
     const secret = crypto.randomBytes(24).toString('hex');
     device.credentialHash = await bcrypt.hash(secret, 12);
     device.credentialIssuedAt = new Date();
@@ -130,12 +127,7 @@ router.post('/:deviceId/credentials', verifyToken, async (req, res) => {
   }
 });
 
-// POST /:deviceId/seen — INTERNAL ONLY, called by data-ingestion-service each
-// time a device publishes. Liveness is DERIVED from the data path rather than
-// self-reported: a device that is publishing is by definition alive, and this
-// works for anything that can reach the broker, including hardware that never
-// speaks REST. Gated by the shared service key for the same reason
-// /verify-credentials is — there's no logged-in human behind the call.
+// POST /:deviceId/seen — ingestion reports liveness using the internal service key.
 router.post('/:deviceId/seen', async (req, res) => {
   try {
     const serviceKey = req.headers['x-service-key'];
@@ -164,10 +156,7 @@ router.post('/:deviceId/seen', async (req, res) => {
   }
 });
 
-// POST /:deviceId/verify-credentials — INTERNAL ONLY, called by
-// data-ingestion-service's MQTT authenticate hook. Gated by a static
-// shared key, not a user JWT — there's no logged-in human in this call,
-// so stretching the JWT system to cover it would blur what it's for.
+// POST /:deviceId/verify-credentials — internal MQTT authentication, protected by the service key.
 router.post('/:deviceId/verify-credentials', async (req, res) => {
   try {
     const serviceKey = req.headers['x-service-key'];
@@ -176,7 +165,7 @@ router.post('/:deviceId/verify-credentials', async (req, res) => {
     }
 
     const { secret } = req.body;
-    if (!secret) return res.status(400).json({ error: 'secret is required' });
+    if (typeof secret !== 'string' || !secret) return res.status(400).json({ error: 'secret is required' });
 
     const device = await Device.findOne({ deviceId: req.params.deviceId });
     if (!device || !device.credentialHash || device.status === 'decommissioned') {

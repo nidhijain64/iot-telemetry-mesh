@@ -1,18 +1,5 @@
-// The ring buffer's shared path, which only matters once this service runs more
-// than one replica (k8s/22-data-ingestion-service.yaml sets replicas: 2).
-//
-// ringBuffer.test.js covers the in-process fallback. This covers what that test
-// structurally cannot: GET /recent/:deviceId must return the same history no
-// matter which replica the Ingress happened to route the request to. Before the
-// buffer was shared, two replicas answered the same request differently and
-// nothing anywhere reported a problem.
-//
-// The stand-in store implements only RPUSH, LTRIM, EXPIRE and LRANGE — the
-// commands the buffer actually issues — so it doubles as a statement of what
-// the implementation depends on. RPUSH + LTRIM from the tail is what preserves
-// arrival order, which is the property the API contract rests on.
+// Verify that separate ring-buffer instances read the same Redis-backed history.
 
-const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 
@@ -69,14 +56,14 @@ function createFakeRedis() {
 
 // One "replica": a fresh module scope, so its fallback Map is genuinely its own.
 function loadReplica(store) {
-  for (const key of [CONFIG, RING_BUFFER]) delete require.cache[require.resolve(key)];
+  jest.resetModules();
   const config = require(CONFIG);
   config.client = store;
   return require(RING_BUFFER);
 }
 
-test('ring buffer across replicas', async (t) => {
-  await t.test('either replica returns the full arrival-ordered history', async () => {
+describe('ring buffer across replicas', () => {
+  test('either replica returns the full arrival-ordered history', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(store);
     const replicaB = loadReplica(store);
@@ -94,7 +81,7 @@ test('ring buffer across replicas', async (t) => {
     );
   });
 
-  await t.test('the oldest reading is dropped once the buffer is full', async () => {
+  test('the oldest reading is dropped once the buffer is full', async () => {
     const store = createFakeRedis();
     const replicaA = loadReplica(store);
     const replicaB = loadReplica(store);
@@ -105,12 +92,12 @@ test('ring buffer across replicas', async (t) => {
     assert.deepStrictEqual(await replicaB.getRecent('dev-y'), [{ n: 3 }, { n: 4 }, { n: 5 }]);
   });
 
-  await t.test('a device nobody has published for returns an empty list', async () => {
+  test('a device nobody has published for returns an empty list', async () => {
     const replica = loadReplica(createFakeRedis());
     assert.deepStrictEqual(await replica.getRecent('never-seen'), []);
   });
 
-  await t.test('a corrupt entry is skipped rather than failing the response', async () => {
+  test('a corrupt entry is skipped rather than failing the response', async () => {
     const store = createFakeRedis();
     const replica = loadReplica(store);
 
@@ -125,7 +112,7 @@ test('ring buffer across replicas', async (t) => {
     );
   });
 
-  await t.test('a store failure never costs a reading', async () => {
+  test('a store failure never costs a reading', async () => {
     const broken = {
       multi() {
         throw new Error('connection refused');

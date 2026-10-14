@@ -1,6 +1,6 @@
 # Running the platform on Kubernetes
 
-These manifests run the same five services locally on minikube. They are not a
+These manifests run the same six services locally on minikube. They are not a
 replacement for the hosted deployment — they exist to run the system under an
 orchestrator and to make the scaling constraints explicit.
 
@@ -18,14 +18,15 @@ it until they are loaded:
 
 ```bash
 docker compose build
-for s in auth-service device-registry-service data-ingestion-service alert-rules-service api-gateway; do
+for s in auth-service device-registry-service data-ingestion-service alert-rules-service api-gateway insight-agent; do
   minikube image load "iot-telemetry-mesh-$s:latest"
 done
 ```
 
 ## Create the secrets, then apply
 
-Secrets are created from the command line so no real value is ever committed:
+Set `GROQ_API_KEY` in your shell for the insight agent. Secrets are created from
+the command line so no real value is ever committed:
 
 ```bash
 kubectl apply -f k8s/00-namespace.yaml
@@ -33,7 +34,8 @@ kubectl apply -f k8s/00-namespace.yaml
 kubectl -n telemetry create secret generic telemetry-secrets \
   --from-literal=JWT_SECRET="$(openssl rand -hex 32)" \
   --from-literal=INTERNAL_SERVICE_KEY="$(openssl rand -hex 32)" \
-  --from-literal=MONGO_URI="mongodb://mongo:27017/telemetry"
+  --from-literal=MONGO_URI="mongodb://mongo:27017/telemetry" \
+  --from-literal=GROQ_API_KEY="$GROQ_API_KEY"
 
 kubectl apply -f k8s/
 ```
@@ -42,8 +44,13 @@ kubectl apply -f k8s/
 
 ```bash
 echo "$(minikube ip) telemetry.local" | sudo tee -a /etc/hosts
-curl http://telemetry.local/api/auth/../../health
+curl -i http://telemetry.local/api/devices  # 401 is expected without a token
 ```
+
+The dashboard runs separately. Set `VITE_API_URL=http://telemetry.local` and
+`VITE_MQTT_WS_URL=ws://telemetry.local/mqtt` for a local HTTP dashboard.
+For phone access or an HTTPS dashboard, configure an Ingress TLS certificate
+and use HTTPS/WSS URLs instead. The supplied Ingress is HTTP-only.
 
 ## Watch it work
 
@@ -66,14 +73,14 @@ kubectl -n telemetry delete pod -l app=data-ingestion-service --field-selector s
 
 | service | replicas | why |
 |---|---|---|
+| insight-agent | 1 | one background agent; overlapping polls are skipped |
 | api-gateway | 2 | genuinely stateless |
 | auth-service | 2 | rate-limit counters shared via Redis, so the limit is global rather than per-replica |
 | device-registry-service | 2 | the stale sweep runs in each replica, but it is one idempotent update |
 | alert-rules-service | 2 | debounce cooldown and sound baseline shared via Redis |
 | data-ingestion-service | 2 | broker emitter, session store and ring buffer shared via Redis |
 
-Every service now runs more than one replica. The last two did not, for most of
-this project's life, and the reason they do is the interesting part.
+The five request-serving services run two replicas; the insight agent runs one.
 
 ### What was actually in the way
 
@@ -140,6 +147,6 @@ and run each alert check — once per replica.
 
 ### Redis is pulled, not loaded
 
-The five service images exist only inside the cluster and use
+The six service images exist only inside the cluster and use
 `imagePullPolicy: Never`. `redis:7-alpine` is an ordinary public image, so it
 keeps the default policy and minikube pulls it like any other.

@@ -18,10 +18,7 @@ const INGESTION_URL = serviceUrl(process.env.INGESTION_URL, 'http://localhost:30
 const ALERT_URL = serviceUrl(process.env.ALERT_URL, 'http://localhost:3004');
 const INSIGHT_URL = serviceUrl(process.env.INSIGHT_URL, 'http://localhost:3006');
 
-// Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
-// Left unset it reflects any origin, which is fine on localhost but means any
-// site a logged-in user visits could call this API from their browser — so an
-// unset value in production is a real hole, and boot says so out loud.
+// CORS_ORIGIN accepts comma-separated origins; unset allows all origins.
 const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
@@ -34,34 +31,15 @@ app.use(morgan('dev'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway' }));
 
-// The browser needs these to warm the services itself. A request from the
-// gateway to a sleeping instance is rejected before it arrives — its logs show
-// nothing at all — so the gateway cannot wake its own upstreams. A request from
-// a browser does wake them, reliably, so the dashboard pings each /health on
-// load and the services are up by the time anyone submits a password.
-//
-// These are public Render hostnames and every route behind them still requires
-// a token; listing them exposes nothing that isn't already reachable.
+// Expose public service URLs so the browser can wake idle Render instances.
 app.get('/upstreams', (req, res) => {
   res.json({ services: [AUTH_URL, DEVICE_REGISTRY_URL, INGESTION_URL, ALERT_URL, INSIGHT_URL] });
 });
 
-// On a free hosting plan an idle service is suspended and takes ~30-60s to come
-// back on the first request. The default proxy timeout is shorter than that, so
-// the very first call after a quiet period failed with a bare 502 even though
-// the upstream was waking up perfectly normally — and only a retry succeeded.
-// Waiting it out costs nothing when services are warm.
+// Allow time for idle services to start before the proxy times out.
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS) || 90 * 1000;
 
-// Free instances are suspended when idle. A timeout alone does not cover this:
-// the first request to a sleeping service can be REJECTED outright rather than
-// held open, so the proxy fails in well under a second and no amount of waiting
-// helps. What does help is that the failed attempt itself triggers the wake —
-// so the fix is to notice the service is cold, wait for it to come up, and only
-// then proxy.
-//
-// Tracked per upstream so the cost is paid once per idle period, not per
-// request: a warm upstream goes straight through with no added latency.
+// Wait for cold upstreams before proxying; cache readiness per service.
 const lastSeenUp = new Map();
 const ASSUME_ASLEEP_AFTER_MS = 10 * 60 * 1000;
 

@@ -1,28 +1,5 @@
-# data-ingestion-service — REST API plus the embedded MQTT broker.
-#
-# TWO REPLICAS, AND THIS IS THE ONE THAT HAD TO EARN IT.
-#
-# This ran at one replica for a long time, because the broker kept its state in
-# process memory: the Aedes subscription emitter, the session store, and the
-# ring buffer of recent readings. With two replicas a device could connect to
-# one while a dashboard connected to the other, and that dashboard would never
-# receive its telemetry — silently, with no error anywhere to explain it.
-#
-# The backplane that fixes it is now in place: mqemitter-redis and
-# aedes-persistence-redis point the emitter and session store at the Redis in
-# 05-redis.yaml, and the ring buffer moved into a Redis list, so GET /recent
-# returns the same history whichever replica answers it. The brokers are one
-# logical broker, and a device connected to either is visible to a dashboard on
-# either.
-#
-# RollingUpdate rather than Recreate, now that two brokers running side by side
-# during a rollout is the normal state rather than the hazard it used to be —
-# so a deploy no longer drops every device connection at once.
-#
-# What still has to hold for this to be correct: broker.js only persists a
-# reading when `client` is set, which is true exclusively on the replica the
-# publisher is connected to. Remove that guard and every reading would be
-# written, and alert-checked, once per replica.
+# REST and MQTT ingestion with shared Redis broker state and recent readings.
+# Only the publisher's replica persists each reading (see broker.js).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,11 +18,7 @@ spec:
       containers:
         - name: data-ingestion-service
           image: iot-telemetry-mesh-data-ingestion-service:latest
-          # Never, not IfNotPresent: these images exist only inside the
-          # cluster, loaded with `minikube image load`. IfNotPresent still lets
-          # kubelet fall back to a registry pull when it cannot find one, and
-          # that attempt hangs for minutes against Docker Hub before failing.
-          # Never turns a missing image into an immediate, obvious error.
+          # Images are loaded with minikube image load; do not pull from a registry.
           imagePullPolicy: Never
           ports:
             - containerPort: 3003
@@ -56,10 +29,7 @@ spec:
             - configMapRef: { name: telemetry-config }
             - secretRef: { name: telemetry-secrets }
           resources:
-            # requests decide scheduling — how much the node must reserve.
-            # limits are the hard ceiling; exceeding memory gets the container
-            # killed. No CPU limit on purpose: CPU is throttled rather than
-            # fatal, and a ceiling just adds latency under burst.
+            # Reserve memory and CPU; cap memory while allowing CPU bursts.
             requests: { cpu: 50m, memory: 96Mi }
             limits: { memory: 256Mi }
           # Readiness gates traffic: fail and the Pod is pulled out of the

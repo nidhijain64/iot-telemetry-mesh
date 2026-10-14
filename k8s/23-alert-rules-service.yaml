@@ -1,18 +1,4 @@
-# alert-rules-service — thresholds, z-score detection, debouncing.
-#
-# Two replicas, which required fixing the thing that previously made that
-# unsafe. The debounce cooldown and the rolling sound baseline were both
-# per-process, so each replica kept its own cooldown and a single sustained
-# problem could raise one duplicate alert per replica — exactly what the
-# debounce exists to prevent.
-#
-# Both now live in the Redis from 05-redis.yaml. The debounce is the part that
-# actually matters: it is a single `SET key NX PX`, so when both replicas
-# evaluate the same reading at the same instant, exactly one creates the key and
-# exactly one alert is written. The shared baseline is what makes the two
-# replicas agree on what "normal" is for a device in the first place, rather
-# than each building a baseline from whatever subset of traffic it happened to
-# receive.
+# Shared Redis baselines and atomic debounce prevent duplicate alerts across replicas.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,11 +16,7 @@ spec:
       containers:
         - name: alert-rules-service
           image: iot-telemetry-mesh-alert-rules-service:latest
-          # Never, not IfNotPresent: these images exist only inside the
-          # cluster, loaded with `minikube image load`. IfNotPresent still lets
-          # kubelet fall back to a registry pull when it cannot find one, and
-          # that attempt hangs for minutes against Docker Hub before failing.
-          # Never turns a missing image into an immediate, obvious error.
+          # Images are loaded with minikube image load; do not pull from a registry.
           imagePullPolicy: Never
           ports:
             - containerPort: 3004
@@ -45,10 +27,7 @@ spec:
             - configMapRef: { name: telemetry-config }
             - secretRef: { name: telemetry-secrets }
           resources:
-            # requests decide scheduling — how much the node must reserve.
-            # limits are the hard ceiling; exceeding memory gets the container
-            # killed. No CPU limit on purpose: CPU is throttled rather than
-            # fatal, and a ceiling just adds latency under burst.
+            # Reserve memory and CPU; cap memory while allowing CPU bursts.
             requests: { cpu: 50m, memory: 96Mi }
             limits: { memory: 256Mi }
           # Readiness gates traffic: fail and the Pod is pulled out of the

@@ -1,8 +1,4 @@
-// Render's Blueprint wires services together with `fromService`, which supplies
-// a BARE HOSTNAME ("device-registry-service.onrender.com"). A local .env supplies
-// a full URL ("http://localhost:3002"). Accept either, so the same code runs in
-// both places and there is no URL left for a human to paste in by hand — which
-// is where "http://localhost:3002 in production" comes from.
+// Accept bare Render hostnames as well as full local service URLs.
 function serviceUrl(value, fallback) {
   const raw = String(value ?? '').trim().replace(/\/+$/, '');
   if (!raw) return fallback;

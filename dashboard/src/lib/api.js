@@ -22,11 +22,7 @@ export function isExpiredSession(error) {
   return error?.response?.status === 401 && Boolean(error?.config?.headers?.Authorization);
 }
 
-// JWTs last an hour. Without this, leaving the dashboard open past expiry left
-// every request failing and the UI stuck on "Could not load devices" forever,
-// with no way back to the login form short of clearing localStorage by hand.
-// Exported so the behaviour can be tested directly, rather than only through a
-// mocked network round trip.
+// Return to login when an authenticated request reports an expired or invalid session.
 export function handleResponseError(error) {
   if (isExpiredSession(error)) {
     clearToken();
@@ -85,10 +81,7 @@ export async function getTelemetryHistory(deviceId, limit = 200) {
   return res.data;
 }
 
-// Insights are written by the insight-agent, which triages clustered alerts.
-// An empty list is the normal state: the agent only writes when several alerts
-// for one device land inside its window, so most of the time there is nothing
-// to show and the panel stays hidden.
+// No insights are expected until enough alerts fall within the agent window.
 export async function getInsights() {
   const res = await client.get('/api/insights');
   return res.data;

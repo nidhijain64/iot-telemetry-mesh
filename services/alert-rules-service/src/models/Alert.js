@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const alertSchema = new mongoose.Schema(
   {
+    seedTag: { type: String },
     deviceId: { type: String, required: true },
     type: { type: String, required: true }, // 'high-temperature' | 'low-battery' | 'sound-anomaly'
     severity: { type: String, enum: ['warning', 'critical'], required: true },

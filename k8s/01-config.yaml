@@ -1,13 +1,5 @@
-# Non-secret configuration, kept separate from the Secret on purpose: these
-# values are safe to read, safe to commit, and safe to leave in the output of
-# `kubectl describe`. Anything that isn't goes in telemetry-secrets instead.
-#
-# Every Deployment pulls this in wholesale with `envFrom`, so a service only
-# reads the keys it cares about and the rest are harmlessly present.
-#
-# Service URLs rely on Kubernetes DNS: each Service gets a name resolvable
-# inside the cluster, so "http://auth-service:3001" needs no hard-coded address
-# and keeps working as pods are rescheduled.
+# Shared non-secret settings. Credentials belong in telemetry-secrets.
+# Service URLs use cluster DNS.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -16,10 +8,7 @@ metadata:
 data:
   NODE_ENV: "production"
 
-  # Shared state for everything that would otherwise be per-replica (see
-  # 05-redis.yaml). Not a secret: no password, cluster-internal only, and it is
-  # the absence of this value that silently drops every service back to
-  # in-process state — so it belongs somewhere readable rather than in a Secret.
+  # Use cluster Redis for shared state across replicas.
   REDIS_URL: "redis://redis:6379"
 
   # --- service discovery ---
@@ -28,12 +17,13 @@ data:
   INGESTION_URL: "http://data-ingestion-service:3003"
   ALERT_SERVICE_URL: "http://alert-rules-service:3004"
   ALERT_URL: "http://alert-rules-service:3004"
+  INSIGHT_URL: "http://insight-agent:3006"
 
   # The dashboard is a static site hosted outside the cluster — set this to its
   # origin. Left blank, every origin is allowed and each service warns at boot.
   CORS_ORIGIN: ""
 
-  # TLS terminates at the Ingress, so the services themselves speak plain HTTP.
+  # Services speak plain HTTP. Configure Ingress TLS separately for HTTPS access.
   # Left set, they would look for certificate files that are not in the image.
   SSL_KEY_PATH: ""
   SSL_CERT_PATH: ""

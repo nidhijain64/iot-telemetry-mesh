@@ -1,4 +1,3 @@
-const test = require('node:test');
 const assert = require('node:assert');
 
 process.env.INSIGHT_MIN_ALERTS = '3';

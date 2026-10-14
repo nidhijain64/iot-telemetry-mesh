@@ -1,19 +1,5 @@
-# Redis — shared state for everything that would otherwise be per-process.
-#
-# This is the file that makes the replica counts elsewhere in this directory
-# possible. Five separate pieces of state used to live in one process's memory:
-#
-#   data-ingestion-service  the Aedes MQTT emitter and session store
-#                           the recent-telemetry ring buffer
-#   alert-rules-service     the alert debounce cooldown
-#                           the rolling sound baseline
-#   auth-service            the login rate-limit counters
-#
-# No PersistentVolumeClaim, deliberately, and the contrast with 10-mongo.yaml is
-# the point: every key here is a cache or a short-lived coordination lock. Losing
-# the lot costs a cold baseline and an empty live chart for a few seconds. The
-# durable record — readings and alerts — is in MongoDB and is unaffected.
-# Giving this a volume would mean owning backups for data we are happy to lose.
+# Ephemeral shared state: MQTT sessions, recent readings, alert baselines and rate limits.
+# Durable readings and alerts live in MongoDB.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,10 +21,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          # Evict the oldest keys rather than start refusing writes if the cap is
-          # ever reached. A rejected write would surface as a failed ingestion;
-          # an evicted baseline window just rebuilds itself over the next few
-          # readings, which is the far cheaper failure.
+          # Evict cache keys when memory is full; baseline windows rebuild from new readings.
           args:
             - redis-server
             - --maxmemory

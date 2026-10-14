@@ -1,0 +1,58 @@
+# One agent replica avoids concurrent duplicate model work. GROQ_API_KEY is required in telemetry-secrets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insight-agent
+  namespace: telemetry
+spec:
+
+  replicas: 1
+  selector:
+    matchLabels: { app: insight-agent }
+  template:
+    metadata:
+      labels: { app: insight-agent }
+    spec:
+      containers:
+        - name: insight-agent
+          image: iot-telemetry-mesh-insight-agent:latest
+          # Images are loaded with minikube image load; do not pull from a registry.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3006
+          env:
+            - name: PORT
+              value: "3006"
+          envFrom:
+            - configMapRef: { name: telemetry-config }
+            - secretRef: { name: telemetry-secrets }
+          resources:
+            # Reserve memory and CPU; cap memory while allowing CPU bursts.
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          # Readiness gates traffic: fail and the Pod is pulled out of the
+          # Service, but nothing is restarted. This is what stops requests
+          # reaching a Pod that is still connecting to MongoDB.
+          readinessProbe:
+            httpGet: { path: /health, port: 3006 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 2
+          # Liveness restarts. Deliberately far more forgiving than readiness —
+          # restarting a Pod that is merely busy makes an overload worse.
+          livenessProbe:
+            httpGet: { path: /health, port: 3006 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: insight-agent
+  namespace: telemetry
+spec:
+  selector: { app: insight-agent }
+  ports:
+    - port: 3006
+      targetPort: 3006

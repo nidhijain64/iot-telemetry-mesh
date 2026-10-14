@@ -22,10 +22,7 @@ if (!process.env.INTERNAL_SERVICE_KEY) {
   process.exit(1);
 }
 
-// Comma-separated allowlist, e.g. "https://fleet.example.com,http://localhost:5173".
-// Left unset it reflects any origin, which is fine on localhost but means any
-// site a logged-in user visits could call this API from their browser — so an
-// unset value in production is a real hole, and boot says so out loud.
+// CORS_ORIGIN accepts comma-separated origins; unset allows all origins.
 const allowedOrigins = originList(process.env.CORS_ORIGIN);
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {

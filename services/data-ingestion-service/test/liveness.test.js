@@ -1,4 +1,3 @@
-const test = require('node:test');
 const assert = require('node:assert');
 const axios = require('axios');
 
@@ -9,62 +8,62 @@ const { reportSeen, shouldReport, _resetThrottle } = require('../src/liveness');
 
 // Captures the calls the reporter would make, so the throttle can be observed
 // without a registry on the other end.
-function mockPost(t, impl = async () => ({ data: {} })) {
+function mockPost(impl = async () => ({ data: {} })) {
   const calls = [];
-  t.mock.method(axios, 'post', async (url, body, config) => {
+  jest.spyOn(axios, 'post').mockImplementation(async (url, body, config) => {
     calls.push({ url, config });
     return impl();
   });
   return calls;
 }
 
-test.beforeEach(() => _resetThrottle());
+beforeEach(() => _resetThrottle());
 
-test('reports a device that has not been seen before', async (t) => {
-  const calls = mockPost(t);
+test('reports a device that has not been seen before', async () => {
+  const calls = mockPost();
   assert.strictEqual(await reportSeen('sim-01'), true);
   assert.strictEqual(calls.length, 1);
   assert.match(calls[0].url, /\/api\/devices\/sim-01\/seen$/);
 });
 
-test('authenticates with the shared service key, not a user JWT', async (t) => {
-  const calls = mockPost(t);
+test('authenticates with the shared service key, not a user JWT', async () => {
+  const calls = mockPost();
   await reportSeen('sim-01');
   assert.strictEqual(calls[0].config.headers['x-service-key'], 'test-service-key');
   assert.ok(!calls[0].config.headers.Authorization);
 });
 
-test('throttles repeat publishes from the same device', async (t) => {
-  const calls = mockPost(t);
+test('throttles repeat publishes from the same device', async () => {
+  const calls = mockPost();
   for (let i = 0; i < 10; i++) await reportSeen('sim-01');
   assert.strictEqual(calls.length, 1, 'ten publishes should produce one registry call');
 });
 
-test('throttles each device independently', async (t) => {
-  const calls = mockPost(t);
+test('throttles each device independently', async () => {
+  const calls = mockPost();
   await reportSeen('sim-01');
   await reportSeen('sim-02');
   assert.strictEqual(calls.length, 2);
 });
 
-test('reports again once the throttle window has passed', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'] });
-  t.after(() => t.mock.timers.reset());
-  const calls = mockPost(t);
+test('reports again once the throttle window has passed', async () => {
+  jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'performance', 'hrtime'] });
+
+  const calls = mockPost();
 
   await reportSeen('sim-01');
-  t.mock.timers.tick(29000);
+  jest.setSystemTime(Date.now() + 29000);
   await reportSeen('sim-01');
   assert.strictEqual(calls.length, 1, 'still inside the throttle window');
 
-  t.mock.timers.tick(2000);
+  jest.setSystemTime(Date.now() + 2000);
   await reportSeen('sim-01');
   assert.strictEqual(calls.length, 2, 'window elapsed, reports again');
 });
 
-test('a failed report is retried on the next publish instead of waiting out the window', async (t) => {
+test('a failed report is retried on the next publish instead of waiting out the window', async () => {
   let failNext = true;
-  const calls = mockPost(t, async () => {
+  const calls = mockPost( async () => {
     if (failNext) {
       failNext = false;
       throw new Error('registry unreachable');
@@ -77,23 +76,25 @@ test('a failed report is retried on the next publish instead of waiting out the 
   assert.strictEqual(calls.length, 2);
 });
 
-test('a successful report does not retry until the window passes', async (t) => {
-  const calls = mockPost(t);
+test('a successful report does not retry until the window passes', async () => {
+  const calls = mockPost();
   await reportSeen('sim-01');
   await reportSeen('sim-01');
   assert.strictEqual(calls.length, 1);
 });
 
-test('ignores a missing deviceId rather than calling with undefined in the URL', async (t) => {
-  const calls = mockPost(t);
+test('ignores a missing deviceId rather than calling with undefined in the URL', async () => {
+  const calls = mockPost();
   assert.strictEqual(await reportSeen(undefined), false);
   assert.strictEqual(await reportSeen(''), false);
   assert.strictEqual(calls.length, 0);
 });
 
-test('shouldReport is true for an unseen device and false right after a report', async (t) => {
-  mockPost(t);
+test('shouldReport is true for an unseen device and false right after a report', async () => {
+  mockPost();
   assert.strictEqual(shouldReport('sim-99'), true);
   await reportSeen('sim-99');
   assert.strictEqual(shouldReport('sim-99'), false);
 });
+
+afterEach(() => jest.useRealTimers());

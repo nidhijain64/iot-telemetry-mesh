@@ -1,7 +1,6 @@
 // Guards the tenant boundary on the live MQTT stream. REST scoping is enforced
 // in device-registry; this is the separate check that a viewer's socket only
 // ever receives telemetry for devices that viewer is allowed to see.
-const test = require('node:test');
 const assert = require('node:assert');
 
 const { createBroker } = require('../src/broker');
@@ -11,30 +10,30 @@ function viewer(deviceIds) {
 }
 const packetFor = (deviceId) => ({ topic: `telemetry/${deviceId}`, payload: Buffer.from('{}') });
 
-test('authorizeForward enforces per-viewer device scope', async (t) => {
-  const aedes = await createBroker();
-  t.after(() => aedes.close());
+describe('authorizeForward enforces per-viewer device scope', () => {
+  let aedes;
+  let forward;
+  beforeAll(async () => { aedes = await createBroker(); forward = aedes.authorizeForward; });
+  afterAll(() => new Promise(resolve => aedes.close(resolve)));
 
-  const forward = aedes.authorizeForward;
-
-  await t.test('delivers telemetry for a device in scope', () => {
+  test('delivers telemetry for a device in scope', () => {
     assert.ok(forward(viewer(['sim-01']), packetFor('sim-01')));
   });
 
-  await t.test("drops telemetry for another user's device", () => {
+  test("drops telemetry for another user's device", () => {
     assert.strictEqual(forward(viewer(['sim-01']), packetFor('sim-02')), null);
   });
 
-  await t.test('drops everything when the scope failed to load', () => {
+  test('drops everything when the scope failed to load', () => {
     assert.strictEqual(forward(viewer([]), packetFor('sim-01')), null);
   });
 
-  await t.test('drops non-telemetry topics for viewers', () => {
+  test('drops non-telemetry topics for viewers', () => {
     const client = viewer(['sim-01']);
     assert.strictEqual(forward(client, { topic: '$SYS/uptime' }), null);
   });
 
-  await t.test('leaves device (non-viewer) clients untouched', () => {
+  test('leaves device (non-viewer) clients untouched', () => {
     const packet = packetFor('sim-01');
     assert.strictEqual(forward({ isViewer: false, deviceId: 'sim-01' }, packet), packet);
   });
